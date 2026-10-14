@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
+mod icon;
 mod keymap;
 mod keypad;
 mod lcd;
@@ -20,6 +21,8 @@ fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title(APP_NAME)
+            .with_app_id("scicalc82")
+            .with_icon(icon::icon())
             .with_inner_size([theme::DESIGN_W + 20.0, theme::DESIGN_H + 20.0])
             .with_min_inner_size([240.0, 430.0]),
         ..Default::default()

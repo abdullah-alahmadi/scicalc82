@@ -2,13 +2,15 @@
 //!
 //! Sums are kept exact where the data allows, so the mean of 1 and 2 is 3/2.
 
+use serde::{Deserialize, Serialize};
+
 use crate::error::{CalcError, CalcResult};
 use crate::value::Value;
 
 /// Most rows the STAT editor holds.
 pub const MAX_ROWS: usize = 40;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum StatKind {
     /// Single-variable statistics.
     #[default]
@@ -31,7 +33,7 @@ impl StatKind {
 }
 
 /// Values available from the STAT menus.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum StatVar {
     N,
     MeanX,
@@ -97,7 +99,7 @@ impl Column {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct StatRow {
     pub x: Value,
     pub y: Value,
@@ -110,7 +112,7 @@ impl Default for StatRow {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StatData {
     pub kind: StatKind,
     pub rows: Vec<StatRow>,

@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use calc_core::Calculator;
+use calc_core::calculator::Snapshot;
 use calc_core::key::Key;
 use eframe::egui::{self, Align2, FontDefinitions, FontFamily, Sense, Stroke};
 
@@ -8,6 +9,9 @@ use crate::theme::{self, View};
 use crate::{keymap, keypad, lcd};
 
 pub const APP_NAME: &str = "SciCalc 82";
+
+/// Key of the calculator state in eframe's storage.
+const STORAGE_KEY: &str = "calculator";
 
 /// How long a key pressed from the PC keyboard is drawn held down.
 const FLASH_SECONDS: f64 = 0.12;
@@ -22,7 +26,9 @@ pub struct CalcApp {
 impl CalcApp {
     pub fn new(cc: &eframe::CreationContext<'_>, seed: u64) -> Self {
         install_fonts(&cc.egui_ctx);
-        let mut calc = Calculator::new();
+        // Settings, memory and data persist across launches, like the device's.
+        let saved = cc.storage.and_then(|s| eframe::get_value::<Snapshot>(s, STORAGE_KEY));
+        let mut calc = saved.map(Calculator::restore).unwrap_or_default();
         calc.reseed(seed);
         Self { calc, flash: None }
     }
@@ -100,6 +106,10 @@ pub fn draw_calculator(ui: &egui::Ui, calc: &Calculator, flash: Option<Key>, cur
 }
 
 impl eframe::App for CalcApp {
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        eframe::set_value(storage, STORAGE_KEY, &self.calc.snapshot());
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         let now = ctx.input(|i| i.time);

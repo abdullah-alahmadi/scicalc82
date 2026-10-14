@@ -6,6 +6,8 @@
 
 use std::fmt;
 
+use serde::{Deserialize, Serialize};
+
 use crate::value::{Rational, Surd, Value, sig_digits};
 
 /// Significant digits shown for a decimal result.
@@ -22,7 +24,7 @@ const SURD_DEN_LIMIT: u128 = 100;
 const SURD_RADICAND_LIMIT: u64 = 1000;
 const PI_LIMIT: u128 = 1000;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NumberFormat {
     #[default]
     Norm1,
@@ -33,7 +35,7 @@ pub enum NumberFormat {
     Sci(u8),
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FractionStyle {
     /// `d/c`
     #[default]
@@ -42,7 +44,7 @@ pub enum FractionStyle {
     Mixed,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FormatSettings {
     pub number: NumberFormat,
     pub fraction: FractionStyle,

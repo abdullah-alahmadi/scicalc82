@@ -1,13 +1,16 @@
 use std::cmp::Ordering;
 use std::fmt;
 
+use serde::{Deserialize, Serialize};
+
 use super::intmath::gcd;
 
 /// An exact fraction in lowest terms with a positive denominator.
 ///
 /// All arithmetic is checked: `None` means the result does not fit in `i128`,
 /// and the caller should fall back to decimal arithmetic.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(try_from = "RationalRepr", into = "RationalRepr")]
 pub struct Rational {
     num: i128,
     den: i128,
@@ -118,6 +121,29 @@ impl Rational {
     /// Exact comparison, `None` if the cross products overflow.
     pub fn checked_cmp(self, rhs: Self) -> Option<Ordering> {
         Some(self.num.checked_mul(rhs.den)?.cmp(&rhs.num.checked_mul(self.den)?))
+    }
+}
+
+/// Saved form: decimal strings, since not every format handles i128.
+#[derive(Serialize, Deserialize)]
+struct RationalRepr {
+    num: String,
+    den: String,
+}
+
+impl From<Rational> for RationalRepr {
+    fn from(r: Rational) -> Self {
+        Self { num: r.num.to_string(), den: r.den.to_string() }
+    }
+}
+
+impl TryFrom<RationalRepr> for Rational {
+    type Error = &'static str;
+
+    /// Re-reduces on load, so a hand-edited file can't break the invariants.
+    fn try_from(r: RationalRepr) -> Result<Self, Self::Error> {
+        let parse = |s: &str| s.parse::<i128>().map_err(|_| "invalid integer");
+        Rational::new(parse(&r.num)?, parse(&r.den)?).ok_or("invalid fraction")
     }
 }
 

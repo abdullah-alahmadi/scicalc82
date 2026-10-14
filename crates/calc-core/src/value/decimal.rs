@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+
 use crate::error::{CalcError, CalcResult};
 
 /// Significant digits carried internally, as on the real device.
@@ -10,8 +12,23 @@ const MIN_MAGNITUDE: f64 = 1e-99;
 
 /// An inexact value, kept rounded to [`INTERNAL_DIGITS`] significant digits
 /// and inside the device's range of 1e-99 ≤ |x| < 1e100.
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(try_from = "f64", into = "f64")]
 pub struct Decimal(f64);
+
+impl From<Decimal> for f64 {
+    fn from(d: Decimal) -> Self {
+        d.0
+    }
+}
+
+impl TryFrom<f64> for Decimal {
+    type Error = CalcError;
+
+    fn try_from(x: f64) -> Result<Self, Self::Error> {
+        Self::new(x)
+    }
+}
 
 impl Decimal {
     pub const ZERO: Self = Self(0.0);

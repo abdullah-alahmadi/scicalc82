@@ -11,6 +11,8 @@ mod surd;
 
 use std::f64::consts::PI;
 
+use serde::{Deserialize, Serialize};
+
 pub(crate) use decimal::sig_digits;
 pub use decimal::{Decimal, INTERNAL_DIGITS};
 pub use rational::Rational;
@@ -21,7 +23,7 @@ use crate::error::{CalcError, CalcResult};
 /// Largest root index (or rational-exponent denominator) we try to keep exact.
 const MAX_EXACT_ROOT: u32 = 1000;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Value {
     /// Exact rationals and sums of square roots.
     Surd(Surd),

@@ -7,10 +7,12 @@
 
 use std::fmt;
 
+use serde::{Deserialize, Serialize};
+
 use crate::stats::StatVar;
 
 /// Functions that are entered as a name plus an opening parenthesis.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Func {
     Sin,
     Cos,
@@ -65,7 +67,7 @@ impl Func {
 }
 
 /// Memory locations that can appear in an expression.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Var {
     A,
     B,
@@ -94,7 +96,7 @@ impl Var {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Token {
     Digit(u8),
     Point,
@@ -191,7 +193,7 @@ impl fmt::Display for Token {
 }
 
 /// The kinds of template, with their slots in cursor order.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TemplateKind {
     /// numerator, denominator
     Fraction,
@@ -239,7 +241,7 @@ impl TemplateKind {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Row {
     pub items: Vec<Item>,
 }
@@ -272,16 +274,35 @@ impl From<Vec<Item>> for Row {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Item {
     Token(Token),
     Template(Template),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "TemplateRepr")]
 pub struct Template {
     pub kind: TemplateKind,
     pub slots: Vec<Row>,
+}
+
+/// Loaded form of a [`Template`], checked so its slots match its kind.
+#[derive(Deserialize)]
+struct TemplateRepr {
+    kind: TemplateKind,
+    slots: Vec<Row>,
+}
+
+impl TryFrom<TemplateRepr> for Template {
+    type Error = &'static str;
+
+    fn try_from(t: TemplateRepr) -> Result<Self, Self::Error> {
+        if t.slots.len() != t.kind.slot_count() {
+            return Err("wrong number of template slots");
+        }
+        Ok(Self { kind: t.kind, slots: t.slots })
+    }
 }
 
 impl Template {

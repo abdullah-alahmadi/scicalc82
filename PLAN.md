@@ -95,7 +95,7 @@ Stretch goals for later: CALC/SOLVE, a WASM web build, alternate skins, an advan
 | 4 ✅ | **UI shell:** calculator body, keypad, SHIFT/ALPHA, keyboard map, LCD with a linear preview | A usable calculator, drawn linearly |
 | 5 ✅ | **Natural display renderer:** box layout, fraction bars, radicals, superscripts, cursor, scrolling | Display looks like MathIO |
 | 6 ✅ | **SETUP, STAT, TABLE modes**, history replay, error screens | Feature checklist complete |
-| 7 | Polish: persistence, scaling/HiDPI, app icon, release build (optional WASM) | v1.0 |
+| 7 ✅ | Polish: persistence, scaling/HiDPI, app icon, release build (optional WASM) | v1.0 |
 
 Milestones 1–3 are the riskiest and most valuable part. Building them as pure, well-tested library code first means the UI work afterwards is mostly drawing.
 

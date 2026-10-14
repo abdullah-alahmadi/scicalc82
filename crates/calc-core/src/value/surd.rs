@@ -1,5 +1,7 @@
 use std::cmp::Ordering;
 
+use serde::{Deserialize, Serialize};
+
 use super::intmath::{FACTOR_LIMIT, gcd, split_square};
 use super::rational::Rational;
 
@@ -11,7 +13,7 @@ const MAX_EXACT_POWER: u64 = 4096;
 
 /// One term `coef·√radicand`, where `radicand` is squarefree.
 /// A radicand of 1 makes the term a plain rational.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SurdTerm {
     pub coef: Rational,
     pub radicand: u64,
@@ -41,9 +43,29 @@ impl SurdTerm {
 ///
 /// Operations return `None` when the result leaves this form or overflows;
 /// callers then continue in decimal.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "Vec<SurdTerm>", into = "Vec<SurdTerm>")]
 pub struct Surd {
     terms: Vec<SurdTerm>,
+}
+
+impl From<Surd> for Vec<SurdTerm> {
+    fn from(s: Surd) -> Self {
+        s.terms
+    }
+}
+
+impl TryFrom<Vec<SurdTerm>> for Surd {
+    type Error = &'static str;
+
+    /// Checks loaded terms: squarefree radicands and at most [`MAX_TERMS`] terms.
+    fn try_from(terms: Vec<SurdTerm>) -> Result<Self, Self::Error> {
+        let squarefree = |r: u64| r > 0 && split_square(r.into()) == Some((1, r.into()));
+        if !terms.iter().all(|t| squarefree(t.radicand)) {
+            return Err("radicand is not squarefree");
+        }
+        Self::from_terms(terms).ok_or("too many terms")
+    }
 }
 
 impl Surd {

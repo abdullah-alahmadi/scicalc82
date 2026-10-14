@@ -1,5 +1,7 @@
 //! The top-level state machine: key presses in, display state out.
 
+use serde::{Deserialize, Serialize};
+
 use crate::ast::LocatedError;
 use crate::error::{CalcError, CalcResult};
 use crate::eval::{Env, Outcome, evaluate};
@@ -106,6 +108,20 @@ pub struct Calculator {
     table: Table,
 }
 
+/// What survives switching the calculator off and on: setup, memory, mode,
+/// STAT data and the TABLE setup (but not the input, result or history).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Snapshot {
+    pub settings: Settings,
+    pub memory: Memory,
+    pub mode: CalcMode,
+    pub stats: StatData,
+    pub table_function: Row,
+    pub table_start: Value,
+    pub table_end: Value,
+    pub table_step: Value,
+}
+
 /// The tokens a template key types in LineIO, which has no templates.
 fn linear_tokens(kind: TemplateKind) -> &'static [Token] {
     match kind {
@@ -157,6 +173,37 @@ impl Calculator {
 
     pub fn reseed(&mut self, seed: u64) {
         self.rng = Rng::seeded(seed);
+    }
+
+    pub fn snapshot(&self) -> Snapshot {
+        Snapshot {
+            settings: self.settings,
+            memory: self.memory.clone(),
+            mode: self.mode,
+            stats: self.stats.clone(),
+            table_function: self.table.function.clone(),
+            table_start: self.table.start.clone(),
+            table_end: self.table.end.clone(),
+            table_step: self.table.step.clone(),
+        }
+    }
+
+    /// A calculator switched on with `snapshot`'s state, showing a blank
+    /// calculation screen (or f(X)= in TABLE mode).
+    pub fn restore(snapshot: Snapshot) -> Self {
+        let mut calc = Self { settings: snapshot.settings, memory: snapshot.memory, ..Self::default() };
+        calc.stats = snapshot.stats;
+        calc.stats.freq = calc.settings.stat_freq;
+        calc.table.function = snapshot.table_function;
+        calc.table.start = snapshot.table_start;
+        calc.table.end = snapshot.table_end;
+        calc.table.step = snapshot.table_step;
+        calc.set_mode(snapshot.mode);
+        // STAT mode starts on the calculation screen; SHIFT 1 2 opens the data.
+        if snapshot.mode == CalcMode::Stat {
+            calc.screen = Screen::Calc;
+        }
+        calc
     }
 
     pub fn editor(&self) -> &Editor {
@@ -1183,6 +1230,45 @@ mod tests {
         let calc = run("mode 3 1 / A ) = neg 1 = 1 = =");
         let errors: Vec<_> = calc.table().rows.iter().map(|r| r.fx.is_err()).collect();
         assert_eq!(errors, vec![false, true, false]);
+    }
+
+    #[test]
+    fn snapshots_round_trip() {
+        // Exact values, a surd, a decimal, settings, STAT data and a TABLE function.
+        let mut calc = run("S mode 4 S mode 6 2 2 / 3 S rcl neg sqrt 2 S rcl dms 1 . 5 sin 1 = m+");
+        keys(&mut calc, "mode 2 2 1 = 2 = up up right 3 = 5 = ac");
+        let saved = ron::to_string(&calc.snapshot()).unwrap();
+        let restored = Calculator::restore(ron::from_str(&saved).unwrap());
+        assert_eq!(restored.snapshot(), calc.snapshot());
+        assert_eq!(restored.mode(), CalcMode::Stat);
+        assert_eq!(restored.screen(), Screen::Calc);
+        assert_eq!(restored.memory().get(Var::A), &Value::rational(crate::value::Rational::new(2, 3).unwrap()));
+        assert_eq!(restored.memory().get(Var::B), &Value::integer(2).sqrt().unwrap());
+        assert!(!restored.memory().get(Var::M).is_exact());
+        let mut restored = restored;
+        // B = 2, shown in the restored Fix 2 format.
+        keys(&mut restored, "S 1 5 2 =");
+        assert_eq!(restored.result_text().unwrap(), "2.00");
+
+        let table = run("mode 3 A ) sq = 2 = 4 = =");
+        let restored = Calculator::restore(ron::from_str(&ron::to_string(&table.snapshot()).unwrap()).unwrap());
+        assert_eq!(restored.screen(), Screen::Table);
+        assert_eq!(restored.editor().root().to_string(), "X²");
+        assert_eq!(restored.table().start, Value::integer(2));
+    }
+
+    #[test]
+    fn tampered_snapshots_are_rejected() {
+        let saved = ron::to_string(&Calculator::new().snapshot()).unwrap();
+        assert!(ron::from_str::<Snapshot>(&saved).is_ok());
+        // Unreduced fractions are normalized; impossible values are refused.
+        let parse_value = |s: &str| ron::from_str::<Value>(s);
+        let half = parse_value(r#"Surd([(coef: (num: "2", den: "4"), radicand: 1)])"#).unwrap();
+        assert_eq!(half, Value::rational(crate::value::Rational::new(1, 2).unwrap()));
+        assert!(parse_value(r#"Surd([(coef: (num: "1", den: "0"), radicand: 1)])"#).is_err());
+        assert!(parse_value(r#"Surd([(coef: (num: "1", den: "1"), radicand: 8)])"#).is_err());
+        assert!(parse_value("Decimal(1e300)").is_err());
+        assert!(ron::from_str::<crate::input::Template>("(kind: Fraction, slots: [()])").is_err());
     }
 
     #[test]

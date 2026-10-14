@@ -1,10 +1,12 @@
 //! Settings, memory and the random number source.
 
+use serde::{Deserialize, Serialize};
+
 use crate::format::FormatSettings;
 use crate::input::Var;
 use crate::value::Value;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AngleUnit {
     #[default]
     Deg,
@@ -13,7 +15,7 @@ pub enum AngleUnit {
 }
 
 /// The calculation mode chosen with MODE.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CalcMode {
     #[default]
     Comp,
@@ -21,7 +23,7 @@ pub enum CalcMode {
     Table,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Settings {
     pub angle: AngleUnit,
     /// Number format, fraction style, and MathIO/LineIO (`format.natural`).
@@ -31,7 +33,7 @@ pub struct Settings {
 }
 
 /// Ans plus the variables A–F, X, Y and the independent memory M.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Memory {
     vars: [Value; 9],
     pub ans: Value,
