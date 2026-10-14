@@ -37,6 +37,24 @@ mod tests {
         assert_eq!(rgb(icon_pixels::KEY_ACCENT), theme::KEY_ACCENT);
     }
 
+    const FAVICON: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/favicon.svg");
+
+    /// The web build's favicon is a committed file; keep it in step with the icon.
+    #[test]
+    fn favicon_matches_the_icon() {
+        let committed = std::fs::read_to_string(FAVICON).unwrap_or_default();
+        assert!(
+            committed == icon_pixels::svg(),
+            "assets/favicon.svg is out of date; run `cargo test -p calc-app write_favicon -- --ignored`"
+        );
+    }
+
+    #[test]
+    #[ignore = "rewrites assets/favicon.svg"]
+    fn write_favicon() {
+        std::fs::write(FAVICON, icon_pixels::svg()).expect("write favicon.svg");
+    }
+
     #[test]
     fn scales_to_any_size() {
         for size in [16, 32, 256] {

@@ -9,7 +9,16 @@ workspace = true
 
 [dependencies]
 calc-core = { version = "0.1.0", path = "../calc-core" }
-eframe = { version = "0.36.2", features = ["persistence"] }
+# The glow (OpenGL/WebGL) renderer instead of the default wgpu: identical
+# output for egui, and a much smaller web build.
+eframe = { version = "0.36.2", default-features = false, features = [
+    "accesskit",
+    "default_fonts",
+    "glow",
+    "persistence",
+    "wayland",
+    "x11",
+] }
 serde = { version = "1.0.229", features = ["derive"] }
 
 [dev-dependencies]
@@ -17,3 +26,6 @@ egui_kittest = { version = "0.36.2", features = ["wgpu", "snapshot"] }
 
 [build-dependencies]
 winresource = "0.1.34"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen-futures = "0.4.79"

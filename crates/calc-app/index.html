@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#1b1d21">
+    <title>SciCalc 82</title>
+    <!-- Built by trunk: compiles this crate to WebAssembly and copies the favicon.
+         wasm-opt optimizes for size; it must be told about the WebAssembly
+         features Rust emits by default (all supported by current browsers). -->
+    <link data-trunk rel="rust" href="Cargo.toml" data-bin="calc-app" data-wasm-opt="z"
+          data-wasm-opt-params="--enable-bulk-memory --enable-bulk-memory-opt --enable-nontrapping-float-to-int --enable-sign-ext --enable-reference-types --enable-multivalue --enable-mutable-globals">
+    <link data-trunk rel="icon" href="assets/favicon.svg">
+    <style>
+        html, body {
+            margin: 0;
+            height: 100%;
+            overflow: hidden;
+            background: #1b1d21;
+        }
+
+        canvas {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            outline: none;
+        }
+
+        #status {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+            text-align: center;
+            color: #8f96a1;
+            font: 16px system-ui, sans-serif;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="calculator"></canvas>
+    <div id="status">Loading SciCalc 82…</div>
+</body>
+</html>

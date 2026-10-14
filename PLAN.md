@@ -82,7 +82,7 @@ Calculator/
 - **Keyboard shortcuts:** digits, operators, Enter = `=`, Backspace = DEL, Esc = AC, plus mappings for SHIFT and ALPHA.
 - **Persistence:** settings and memory survive restarts, like the real device.
 
-Stretch goals for later: CALC/SOLVE, a WASM web build, alternate skins, an advanced feature pack (complex numbers, matrices, equations, integrals).
+Stretch goals for later: CALC/SOLVE, alternate skins, an advanced feature pack (complex numbers, matrices, equations, integrals). (The WASM web build is done: see the README.)
 
 ## Milestones
 

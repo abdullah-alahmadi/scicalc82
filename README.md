@@ -33,6 +33,28 @@ cargo run --release -p calc-app
 
 The optimized executable is written to `target/release/calc-app.exe`.
 
+### Web version
+
+The same app runs in a browser as WebAssembly. You need the `wasm32-unknown-unknown` target and [trunk](https://trunkrs.dev):
+
+```bash
+rustup target add wasm32-unknown-unknown
+```
+
+```bash
+cargo install trunk --locked
+```
+
+Then, from `crates/calc-app`:
+
+```bash
+trunk serve
+```
+
+That serves the calculator at http://localhost:8765 and rebuilds when files change. `trunk build` writes a static site to `crates/calc-app/dist/`, which you can upload to any static host (GitHub Pages, Netlify, and so on). The `.wasm` file is about 5 MB, roughly 2 MB once the server compresses it. In the browser, settings and memory are saved in the page's local storage.
+
+### Windows icon
+
 On Windows, the build also embeds the app icon in the exe, so Explorer and shortcuts show it. It's generated from the same drawing code as the window icon (`crates/calc-app/src/icon_pixels.rs`). Embedding needs the resource compiler from the Windows SDK. If that's missing, the build still succeeds and prints a warning, and the exe simply has no icon.
 
 ## Using it

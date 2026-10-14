@@ -48,6 +48,27 @@ fn inside(x: f32, y: f32, (x0, y0, x1, y1, r): (f32, f32, f32, f32, f32)) -> boo
     (x - cx).powi(2) + (y - cy).powi(2) <= r * r
 }
 
+/// The icon as an SVG document: the web build's favicon, kept current by a test.
+#[cfg(test)]
+pub fn svg() -> String {
+    let rects: String = shapes()
+        .iter()
+        .map(|((x0, y0, x1, y1, r), [red, green, blue])| {
+            format!(
+                "  <rect x=\"{x0}\" y=\"{y0}\" width=\"{}\" height=\"{}\" rx=\"{r}\" fill=\"#{red:02x}{green:02x}{blue:02x}\"/>
+",
+                x1 - x0,
+                y1 - y0
+            )
+        })
+        .collect();
+    format!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {GRID} {GRID}\">
+{rects}</svg>
+"
+    )
+}
+
 /// The icon at `size`×`size` pixels: RGBA rows, top to bottom, with
 /// straight (unpremultiplied) alpha.
 pub fn rgba(size: u32) -> Vec<u8> {

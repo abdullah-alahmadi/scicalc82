@@ -1,0 +1,10 @@
+# Web build: `trunk serve` or `trunk build` from this folder (or pass
+# `--config crates/calc-app/Trunk.toml` from the workspace root).
+
+[build]
+target = "index.html"
+dist = "dist"
+release = true
+
+[serve]
+port = 8765
