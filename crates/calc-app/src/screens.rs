@@ -55,6 +55,8 @@ fn press_script(calc: &mut Calculator, script: &str) {
 }
 
 const SCENES: &[(&str, &str)] = &[
+    ("natural", "1 frac 3 right + sqrt 1 frac 2 ="),
+    ("sine", "sin 30 ="),
     ("mode_menu", "mode"),
     ("setup_menu", "S mode"),
     ("setup_page2", "S mode down"),

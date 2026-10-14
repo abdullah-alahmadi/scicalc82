@@ -7,6 +7,7 @@ The name, look and code are original.
 ## Features
 
 - **Natural display:** stacked fractions, real radicals, raised exponents, and a cursor that moves through them. LineIO mode gives a one-line display instead.
+- **Dot-matrix LCD:** display text is drawn dot by dot from a built-in 5×7 typeface. Dots snap to screen pixels so small text stays sharp.
 - **Exact arithmetic:** fractions, sums of square roots (`1+√5`) and multiples of π stay exact. S⇔D switches to the decimal form.
   - Special angles are exact too: `sin 30° = 1/2`, `cos(π/4) = √2/2`, and `sin⁻¹(1/2)` gives `π/6` in radians.
   - Decimals carry 15 significant digits internally and show 10, with results limited to |x| < 10¹⁰⁰.

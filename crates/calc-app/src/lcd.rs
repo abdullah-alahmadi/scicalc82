@@ -11,6 +11,7 @@ use calc_core::table::TableStage;
 use calc_core::{CalcError, Calculator, Value};
 use eframe::egui::{Align2, Color32, Painter, Rect, vec2};
 
+use crate::dots;
 use crate::math::layout::{CursorBar, layout};
 use crate::math::nodes::{Node, formatted_nodes, input_nodes, label_nodes, result_nodes};
 use crate::math::paint::{EguiMeasure, paint, paint_cursor};
@@ -88,7 +89,7 @@ fn draw_indicators(painter: &Painter, view: View, calc: &Calculator) {
 #[allow(clippy::too_many_arguments)]
 fn text(painter: &Painter, view: View, x: f32, y: f32, s: &str, size: f32, align: Align2, color: Color32) {
     let (gx, gy, ..) = GLASS;
-    painter.text(view.pos(gx + x, gy + y), align, s, view.lcd_font(size), color);
+    dots::paint_aligned(painter, view.pos(gx + x, gy + y), align, s, view.len(size), color);
 }
 
 /// A menu label, left-aligned and vertically centered on `y` (glass

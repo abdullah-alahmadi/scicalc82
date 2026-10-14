@@ -59,11 +59,6 @@ impl View {
         v * self.scale
     }
 
-    /// The LCD typeface (monospaced, with the widest symbol coverage).
-    pub fn lcd_font(&self, size: f32) -> FontId {
-        FontId::new(self.len(size), FontFamily::Monospace)
-    }
-
     pub fn label_font(&self, size: f32) -> FontId {
         FontId::new(self.len(size), FontFamily::Proportional)
     }

@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
+mod dots;
 mod icon;
 mod icon_pixels;
 mod keymap;

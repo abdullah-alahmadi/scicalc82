@@ -1,24 +1,20 @@
 //! Drawing laid-out math with egui.
 
-use eframe::egui::{Color32, FontId, Painter, Pos2, Shape, Stroke, StrokeKind, pos2, vec2};
+use eframe::egui::{Color32, Painter, Pos2, Shape, Stroke, StrokeKind, pos2};
 
 use super::layout::{Laid, Measure, Prim};
+use crate::dots;
 
-/// Measures with the LCD font at the current screen scale.
+/// Measures with the LCD's dot-matrix font at the current screen scale.
 pub struct EguiMeasure<'a> {
     pub painter: &'a Painter,
     /// Screen points per design unit.
     pub scale: f32,
 }
 
-fn font(size: f32) -> FontId {
-    FontId::monospace(size)
-}
-
 impl Measure for EguiMeasure<'_> {
     fn width(&self, text: &str, size: f32) -> f32 {
-        let galley = self.painter.layout_no_wrap(text.to_owned(), font(size * self.scale), Color32::BLACK);
-        galley.size().x / self.scale
+        dots::width(self.painter, text, size * self.scale) / self.scale
     }
 }
 
@@ -27,16 +23,7 @@ pub fn paint(painter: &Painter, laid: &Laid, origin: Pos2, scale: f32, color: Co
     let at = |p: Pos2| origin + p.to_vec2() * scale;
     for prim in &laid.prims {
         match prim {
-            Prim::Text { pos, text, size } => {
-                let galley = painter.layout_no_wrap(text.clone(), font(size * scale), color);
-                // Align the glyph baseline, not the galley's top edge.
-                let baseline = galley
-                    .rows
-                    .first()
-                    .and_then(|row| row.row.glyphs.first().map(|g| row.pos.y + g.pos.y))
-                    .unwrap_or(galley.size().y * 0.8);
-                painter.galley(at(*pos) - vec2(0.0, baseline), galley, color);
-            }
+            Prim::Text { pos, text, size } => dots::paint(painter, at(*pos), text, size * scale, color),
             Prim::Line { from, to, width } => {
                 painter.line_segment([at(*from), at(*to)], Stroke::new(width * scale, color));
             }
