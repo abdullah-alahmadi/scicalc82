@@ -2,6 +2,7 @@
 
 pub mod ast;
 pub mod calculator;
+pub mod eqn;
 pub mod error;
 pub mod eval;
 pub mod format;

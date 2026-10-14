@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::ast::LocatedError;
+use crate::eqn::{Equations, Solution};
 use crate::error::{CalcError, CalcResult};
 use crate::eval::{Env, Outcome, evaluate};
 use crate::format::{
@@ -71,6 +72,37 @@ pub enum Screen {
     Table,
     /// Entering a matrix's cells (MATRIX mode).
     MatrixEditor,
+    /// Entering equation coefficients (EQN mode).
+    EqnEditor,
+    /// Showing an equation's solutions one at a time (EQN mode).
+    EqnSolution,
+}
+
+/// The coefficient editor's highlighted cell and the value being typed.
+#[derive(Clone, Debug, Default)]
+pub struct EqnEditor {
+    pub row: usize,
+    pub col: usize,
+    pub input: Editor,
+    /// An error from the last entry, shown until the next key.
+    pub error: Option<CalcError>,
+}
+
+#[derive(Clone, Debug)]
+struct EqnState {
+    result: CalcResult<Solution>,
+    /// Which root is showing.
+    index: usize,
+    form: ResultForm,
+}
+
+/// What the solution screen shows.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum EqnView {
+    Root { label: &'static str, value: Formatted, index: usize, count: usize },
+    NoSolution,
+    Infinite,
+    Error(CalcError),
 }
 
 /// The matrix being edited, its highlighted cell, and the value being typed.
@@ -140,6 +172,9 @@ pub struct Calculator {
     table: Table,
     matrices: Matrices,
     matrix_editor: MatrixEditor,
+    equations: Equations,
+    eqn_editor: EqnEditor,
+    eqn_solution: Option<EqnState>,
 }
 
 /// What survives switching the calculator off and on: setup, memory, mode,
@@ -156,6 +191,8 @@ pub struct Snapshot {
     pub table_step: Value,
     #[serde(default)]
     pub matrices: Matrices,
+    #[serde(default)]
+    pub equations: Equations,
 }
 
 /// The tokens a template key types in LineIO, which has no templates.
@@ -222,6 +259,7 @@ impl Calculator {
             table_end: self.table.end.clone(),
             table_step: self.table.step.clone(),
             matrices: self.matrices.clone(),
+            equations: self.equations.clone(),
         }
     }
 
@@ -236,8 +274,9 @@ impl Calculator {
         calc.table.end = snapshot.table_end;
         calc.table.step = snapshot.table_step;
         calc.matrices = snapshot.matrices;
+        calc.equations = snapshot.equations;
         calc.set_mode(snapshot.mode);
-        // MATRIX mode starts on the calculation screen, not the matrix prompt.
+        // MATRIX and EQN modes start on their screens, not their prompts.
         calc.menu = None;
         // STAT mode starts on the calculation screen; SHIFT 1 2 opens the data.
         if snapshot.mode == CalcMode::Stat {
@@ -305,6 +344,38 @@ impl Calculator {
 
     pub fn matrix_editor(&self) -> &MatrixEditor {
         &self.matrix_editor
+    }
+
+    pub fn equations(&self) -> &Equations {
+        &self.equations
+    }
+
+    pub fn eqn_editor(&self) -> &EqnEditor {
+        &self.eqn_editor
+    }
+
+    /// The solution screen's content, while it is showing.
+    pub fn eqn_view(&self) -> Option<EqnView> {
+        let state = self.eqn_solution.as_ref()?;
+        Some(match &state.result {
+            Err(e) => EqnView::Error(*e),
+            Ok(Solution::NoSolution) => EqnView::NoSolution,
+            Ok(Solution::Infinite) => EqnView::Infinite,
+            Ok(Solution::Roots(roots)) => {
+                let root = &roots[state.index];
+                let value = if root.value.is_complex() && self.settings.complex_polar {
+                    match root.value.to_polar(self.settings.angle) {
+                        Ok((r, theta)) => format_polar(&r, &theta, &self.settings.format, state.form),
+                        Err(_) => format_rect(root.value.re(), &root.value.im(), &self.settings.format, state.form),
+                    }
+                } else if root.value.is_complex() {
+                    format_rect(root.value.re(), &root.value.im(), &self.settings.format, state.form)
+                } else {
+                    format_value(root.value.re(), &self.settings.format, state.form)
+                };
+                EqnView::Root { label: root.label, value, index: state.index, count: roots.len() }
+            }
+        })
     }
 
     /// A value in the current display format, as STAT and TABLE cells show it.
@@ -399,6 +470,8 @@ impl Calculator {
             Screen::StatEditor => self.stat_editor_key(action),
             Screen::Table => self.table_key(action),
             Screen::MatrixEditor => self.matrix_editor_key(action),
+            Screen::EqnEditor => self.eqn_editor_key(action),
+            Screen::EqnSolution => self.eqn_solution_key(action),
         }
     }
 
@@ -459,6 +532,10 @@ impl Calculator {
                 Screen::MatrixEditor => {
                     self.matrix_editor.input.insert_token(token);
                 }
+                Screen::EqnEditor => {
+                    self.eqn_editor.input.insert_token(token);
+                }
+                Screen::EqnSolution => {}
             },
             MenuAction::Clear(choice) => self.clear_memory(choice),
             MenuAction::StatEditor => self.screen = Screen::StatEditor,
@@ -466,6 +543,14 @@ impl Calculator {
             MenuAction::DefineMatrix(id, rows, cols) => {
                 *self.matrices.slot_mut(id) = Matrix::zeros(rows, cols);
                 self.open_matrix_editor(id);
+            }
+            MenuAction::EqnType(kind) => {
+                if self.equations.kind() != kind {
+                    self.equations = Equations::new(kind);
+                }
+                self.eqn_editor = EqnEditor::default();
+                self.eqn_solution = None;
+                self.screen = Screen::EqnEditor;
             }
             MenuAction::EditMatrix(id) => {
                 if self.matrices.slot(id).is_some() {
@@ -486,6 +571,12 @@ impl Calculator {
             CalcMode::Matrix => {
                 self.menu = Some(MenuId::MatSelect { define: true });
                 Screen::Calc
+            }
+            // EQN mode asks for the equation type, then edits its coefficients.
+            CalcMode::Eqn => {
+                self.menu = Some(MenuId::EqnType);
+                self.eqn_solution = None;
+                Screen::EqnEditor
             }
             CalcMode::Stat => Screen::StatEditor,
             CalcMode::Table => {
@@ -930,6 +1021,82 @@ impl Calculator {
                 }
             }
             Err(e) => self.matrix_editor.error = Some(e),
+        }
+    }
+
+    // ---- EQN ----
+
+    fn eqn_editor_key(&mut self, action: Action) {
+        if self.eqn_editor.error.take().is_some() {
+            return;
+        }
+        let kind = self.equations.kind();
+        let natural = self.settings.format.natural;
+        let typing = !self.eqn_editor.input.is_empty();
+        let ed = &mut self.eqn_editor;
+        match action {
+            Action::Equals if typing => self.commit_eqn_cell(),
+            // = with nothing typed solves, as on the device.
+            Action::Equals => {
+                self.eqn_solution =
+                    Some(EqnState { result: self.equations.solve(), index: 0, form: ResultForm::Standard });
+                self.screen = Screen::EqnSolution;
+            }
+            Action::Ac => ed.input.clear(),
+            Action::Up if !typing => ed.row = ed.row.saturating_sub(1),
+            Action::Down if !typing => ed.row = (ed.row + 1).min(kind.rows() - 1),
+            Action::Left if !typing => ed.col = ed.col.saturating_sub(1),
+            Action::Right if !typing => ed.col = (ed.col + 1).min(kind.cols() - 1),
+            other => edit(&mut ed.input, other, natural),
+        }
+    }
+
+    /// Stores the typed coefficient and moves to the next cell, row by row.
+    fn commit_eqn_cell(&mut self) {
+        let row = self.eqn_editor.input.root().clone();
+        match self.evaluate_input(&row) {
+            Ok(value) => {
+                let kind = self.equations.kind();
+                let ed = &mut self.eqn_editor;
+                self.equations.set(ed.row, ed.col, value);
+                ed.input.clear();
+                if ed.col + 1 < kind.cols() {
+                    ed.col += 1;
+                } else if ed.row + 1 < kind.rows() {
+                    ed.row += 1;
+                    ed.col = 0;
+                }
+            }
+            Err(e) => self.eqn_editor.error = Some(e),
+        }
+    }
+
+    /// ▲/▼ move between solutions; = steps forward and, after the last,
+    /// returns to the coefficients, as does AC.
+    fn eqn_solution_key(&mut self, action: Action) {
+        let Some(state) = &mut self.eqn_solution else {
+            self.screen = Screen::EqnEditor;
+            return;
+        };
+        let count = match &state.result {
+            Ok(Solution::Roots(roots)) => roots.len(),
+            _ => 0,
+        };
+        match action {
+            Action::Down if state.index + 1 < count => state.index += 1,
+            Action::Up => state.index = state.index.saturating_sub(1),
+            Action::Equals if state.index + 1 < count => state.index += 1,
+            Action::SToD => {
+                state.form = match state.form {
+                    ResultForm::Standard => ResultForm::Decimal,
+                    ResultForm::Decimal => ResultForm::Standard,
+                }
+            }
+            Action::Equals | Action::Ac => {
+                self.eqn_solution = None;
+                self.screen = Screen::EqnEditor;
+            }
+            _ => {}
         }
     }
 
@@ -1597,6 +1764,71 @@ mod tests {
         assert_eq!(calc.mode(), CalcMode::Matrix);
         assert!(calc.menu().is_none(), "restored MATRIX mode starts on the calculation screen");
         assert_eq!(calc.matrices().get(MatId::B).unwrap(), &Matrix::identity(2).unwrap());
+    }
+
+    /// Shows each solution in turn: `label=value`, pressing = between them.
+    fn eqn_roots(script: &str) -> Vec<String> {
+        let mut calc = run(&format!("mode 6 {script} ="));
+        let mut shown = Vec::new();
+        while let Some(view) = calc.eqn_view() {
+            shown.push(match view {
+                EqnView::Root { label, value, .. } => format!("{label}={value}"),
+                other => format!("{other:?}"),
+            });
+            keys(&mut calc, "=");
+        }
+        assert_eq!(calc.screen(), Screen::EqnEditor, "= after the last solution returns to the coefficients");
+        shown
+    }
+
+    #[test]
+    fn simultaneous_equations() {
+        // 1: anX+bnY=cn. x + y = 3, x − y = 1
+        assert_eq!(eqn_roots("1 1 = 1 = 3 = 1 = neg 1 = 1 ="), ["X=2", "Y=1"]);
+        assert_eq!(eqn_roots("1 3 = 0 = 1 = 0 = 3 = 2 ="), ["X=1/3", "Y=2/3"]);
+        // 2: three unknowns.
+        assert_eq!(eqn_roots("2 1 = 1 = 1 = 6 = 0 = 2 = 5 = neg 4 = 2 = 5 = neg 1 = 27 ="), ["X=5", "Y=3", "Z=-2"]);
+        assert_eq!(eqn_roots("1 1 = 1 = 1 = 2 = 2 = 3 ="), ["NoSolution"]);
+        assert_eq!(eqn_roots("1 1 = 1 = 1 = 2 = 2 = 2 ="), ["Infinite"]);
+    }
+
+    #[test]
+    fn polynomial_equations() {
+        // 3: aX²+bX+c=0
+        assert_eq!(eqn_roots("3 1 = neg 3 = 2 ="), ["X1=2", "X2=1"]);
+        assert_eq!(eqn_roots("3 1 = 0 = neg 2 ="), ["X1=√2", "X2=-√2"]);
+        assert_eq!(eqn_roots("3 1 = 0 = 1 ="), ["X1=i", "X2=-i"]);
+        assert_eq!(eqn_roots("3 1 = neg 2 = 1 ="), ["X=1"]);
+        // 4: aX³+bX²+cX+d=0
+        assert_eq!(eqn_roots("4 1 = 0 = 0 = neg 1 ="), ["X1=1", "X2=-1/2+√3/2i", "X3=-1/2-√3/2i"]);
+        assert_eq!(eqn_roots("4 1 = 0 = neg 2 = 0 ="), ["X1=√2", "X2=0", "X3=-√2"]);
+        assert_eq!(eqn_roots("4 0 = 1 = 1 = 1 ="), ["Error(Math)"]);
+    }
+
+    #[test]
+    fn eqn_screens() {
+        let mut calc = run("mode 6 3 1 = neg 3 = 2 = =");
+        assert_eq!(calc.screen(), Screen::EqnSolution);
+        // ▼ and ▲ move between solutions; S⇔D shows decimals.
+        keys(&mut calc, "down down");
+        assert!(matches!(calc.eqn_view(), Some(EqnView::Root { index: 1, count: 2, .. })));
+        keys(&mut calc, "up");
+        assert!(matches!(calc.eqn_view(), Some(EqnView::Root { index: 0, .. })));
+        let mut calc = run("mode 6 3 2 = 0 = neg 1 = = sd");
+        assert!(matches!(calc.eqn_view(), Some(EqnView::Root { value, .. }) if value.to_string() == "0.7071067812"));
+        // AC returns to the coefficients, which are kept; coefficients may be expressions.
+        keys(&mut calc, "ac");
+        assert_eq!(calc.screen(), Screen::EqnEditor);
+        assert_eq!(calc.equations().get(0, 0), &Value::integer(2));
+        let calc = run("mode 6 3 1 / 2 = sqrt 4 = 0 =");
+        assert_eq!(calc.equations().get(0, 0), &Value::rational(crate::value::Rational::new(1, 2).unwrap()));
+        assert_eq!(calc.equations().get(0, 1), &Value::integer(2));
+        // The equations survive a restart, opening on the coefficient editor.
+        let calc = run("mode 6 4 1 = 2 =");
+        let restored = Calculator::restore(ron::from_str(&ron::to_string(&calc.snapshot()).unwrap()).unwrap());
+        assert_eq!(restored.screen(), Screen::EqnEditor);
+        assert!(restored.menu().is_none());
+        assert_eq!(restored.equations().get(0, 1), &Value::integer(2));
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! The display: status indicators plus whichever screen is active — the
 //! calculation lines, a menu, the STAT editor, or TABLE mode.
 
-use calc_core::calculator::{Pending, Phase, Screen};
+use calc_core::calculator::{EqnView, Pending, Phase, Screen};
 use calc_core::eval::Outcome;
 use calc_core::format::{FormatSettings, Formatted, NumberFormat, format_decimal};
 use calc_core::input::{Editor, Var};
@@ -55,6 +55,8 @@ pub fn draw(painter: &Painter, view: View, calc: &Calculator, cursor_visible: bo
         Screen::StatEditor => draw_stat_editor(&painter, view, calc, cursor_visible),
         Screen::Table => draw_table(&painter, view, calc, cursor_visible),
         Screen::MatrixEditor => draw_matrix_editor(&painter, view, calc, cursor_visible),
+        Screen::EqnEditor => draw_eqn_editor(&painter, view, calc, cursor_visible),
+        Screen::EqnSolution => draw_eqn_solution(&painter, view, calc),
     }
 }
 
@@ -83,6 +85,7 @@ fn draw_indicators(painter: &Painter, view: View, calc: &Calculator) {
         (166.0, "STAT", calc.mode() == CalcMode::Stat),
         (166.0, "CMPLX", calc.mode() == CalcMode::Cmplx),
         (166.0, "MAT", calc.mode() == CalcMode::Matrix),
+        (166.0, "EQN", calc.mode() == CalcMode::Eqn),
         (220.0, "Math", settings.format.natural),
         (260.0, "▲", on_calc && calc.history_len() > 0),
     ];
@@ -328,6 +331,59 @@ fn draw_matrix_editor(painter: &Painter, view: View, calc: &Calculator, cursor_v
     } else {
         let nodes = formatted_nodes(&calc.format(m.get(ed.row, ed.col)), calc.settings().format.natural);
         fit(painter, view, area, &nodes, 16.0, 9.0, false, theme::LCD_INK);
+    }
+}
+
+/// EQN coefficients: one row per equation, columns a, b, c (, d).
+fn draw_eqn_editor(painter: &Painter, view: View, calc: &Calculator, cursor_visible: bool) {
+    let eqs = calc.equations();
+    let kind = eqs.kind();
+    let ed = calc.eqn_editor();
+    let number = calc.settings().format.number;
+    let first = first_visible(ed.row);
+    let rows = (first..kind.rows().min(first + VISIBLE_ROWS))
+        .map(|r| (r + 1, (0..kind.cols()).map(|c| Some(cell_nodes(eqs.get(r, c), number))).collect()))
+        .collect();
+    let headers = kind.headers().to_vec();
+    draw_grid(view, &Grid { title: None, headers, rows, selected: (ed.row, ed.col), painter });
+
+    let area = bottom_area(view);
+    if let Some(error) = ed.error {
+        let y = (BOTTOM_TOP + GLASS.3) / 2.0;
+        text(painter, view, GLASS.2 - 8.0, y, &error.to_string(), 13.0, Align2::RIGHT_CENTER, theme::LCD_INK);
+    } else if !ed.input.is_empty() {
+        draw_editor(painter, view, area, &ed.input, true, cursor_visible);
+    } else {
+        let nodes = formatted_nodes(&calc.format(eqs.get(ed.row, ed.col)), calc.settings().format.natural);
+        fit(painter, view, area, &nodes, 16.0, 9.0, false, theme::LCD_INK);
+    }
+}
+
+/// One solution at a time: its label at the top, its value below, and ▲/▼
+/// when there are more.
+fn draw_eqn_solution(painter: &Painter, view: View, calc: &Calculator) {
+    let ink = theme::LCD_INK;
+    let center = GLASS.2 / 2.0;
+    match calc.eqn_view() {
+        Some(EqnView::Root { label, value, index, count }) => {
+            text(painter, view, 6.0, 26.0, &format!("{label}="), 15.0, Align2::LEFT_CENTER, ink);
+            let area = glass_rect(view, 6.0, 38.0, GLASS.2 - 22.0, GLASS.3 - 40.0);
+            let nodes = formatted_nodes(&value, calc.settings().format.natural);
+            fit(painter, view, area, &nodes, RESULT_SIZE, MIN_RESULT_SIZE, true, ink);
+            let right = GLASS.2 - 6.0;
+            if index > 0 {
+                text(painter, view, right, 26.0, "▲", 10.0, Align2::RIGHT_CENTER, ink);
+            }
+            if index + 1 < count {
+                text(painter, view, right, GLASS.3 - 10.0, "▼", 10.0, Align2::RIGHT_CENTER, ink);
+            }
+        }
+        Some(EqnView::NoSolution) => text(painter, view, center, 56.0, "No Solution", 18.0, Align2::CENTER_CENTER, ink),
+        Some(EqnView::Infinite) => {
+            text(painter, view, center, 56.0, "Infinite Solution", 18.0, Align2::CENTER_CENTER, ink);
+        }
+        Some(EqnView::Error(error)) => draw_error(painter, view, error, false),
+        None => {}
     }
 }
 

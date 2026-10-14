@@ -1,5 +1,6 @@
 //! The device's numbered menus: MODE, SETUP, DRG▸, CLR and the STAT menus.
 
+use crate::eqn::EqnKind;
 use crate::format::{FractionStyle, NumberFormat};
 use crate::input::{Func, Token};
 use crate::matrix::MatId;
@@ -40,6 +41,8 @@ pub enum MenuId {
         id: MatId,
         more: bool,
     },
+    /// The kind of equation to solve (EQN mode).
+    EqnType,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -63,6 +66,8 @@ pub(crate) enum MenuAction {
     DefineMatrix(MatId, usize, usize),
     /// Edit a matrix's cells (or size it first if it doesn't exist yet).
     EditMatrix(MatId),
+    /// Choose the equation type and edit its coefficients.
+    EqnType(EqnKind),
 }
 
 /// An open menu as the display shows it.
@@ -92,6 +97,7 @@ fn entries(id: MenuId, kind: StatKind) -> Vec<(&'static str, MenuAction)> {
                 ("STAT", Open(MenuId::StatType)),
                 ("TABLE", Mode(CalcMode::Table)),
                 ("MATRIX", Mode(CalcMode::Matrix)),
+                ("EQN", Mode(CalcMode::Eqn)),
             ]
         }
         MenuId::StatType => vec![("1-VAR", StatType(StatKind::OneVar)), ("A+BX", StatType(StatKind::Linear))],
@@ -134,6 +140,10 @@ fn entries(id: MenuId, kind: StatKind) -> Vec<(&'static str, MenuAction)> {
             ("2×2", DefineMatrix(id, 2, 2)),
             ("2×1", DefineMatrix(id, 2, 1)),
         ],
+        MenuId::EqnType => [EqnKind::Linear2, EqnKind::Linear3, EqnKind::Quadratic, EqnKind::Cubic]
+            .iter()
+            .map(|&kind| (kind.label(), EqnType(kind)))
+            .collect(),
         MenuId::MatDim { id, more: true } => {
             vec![("1×3", DefineMatrix(id, 1, 3)), ("1×2", DefineMatrix(id, 1, 2)), ("1×1", DefineMatrix(id, 1, 1))]
         }

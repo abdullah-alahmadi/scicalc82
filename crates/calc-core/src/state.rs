@@ -25,6 +25,8 @@ pub enum CalcMode {
     Table,
     /// Matrices up to 3×3: MatA–MatC and MatAns.
     Matrix,
+    /// Equation solving: linear systems and polynomials.
+    Eqn,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
