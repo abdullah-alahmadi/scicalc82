@@ -2,6 +2,7 @@
 
 use crate::format::{FractionStyle, NumberFormat};
 use crate::input::{Func, Token};
+use crate::matrix::MatId;
 use crate::state::{AngleUnit, CalcMode};
 use crate::stats::{StatKind, StatVar};
 
@@ -28,6 +29,17 @@ pub enum MenuId {
     Cmplx,
     /// SETUP: show CMPLX results as a+bi or r∠θ.
     CmplxFormat,
+    /// SHIFT 4 in MATRIX mode.
+    Matrix,
+    /// Which matrix to size (`define`) or edit.
+    MatSelect {
+        define: bool,
+    },
+    /// The size of a matrix; `more` is the second page (1×n sizes).
+    MatDim {
+        id: MatId,
+        more: bool,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -47,6 +59,10 @@ pub(crate) enum MenuAction {
     StatEditor,
     /// CMPLX results in polar (true) or rectangular form.
     ComplexPolar(bool),
+    /// Create a matrix of zeros with this size and edit it.
+    DefineMatrix(MatId, usize, usize),
+    /// Edit a matrix's cells (or size it first if it doesn't exist yet).
+    EditMatrix(MatId),
 }
 
 /// An open menu as the display shows it.
@@ -75,6 +91,7 @@ fn entries(id: MenuId, kind: StatKind) -> Vec<(&'static str, MenuAction)> {
                 ("CMPLX", Mode(CalcMode::Cmplx)),
                 ("STAT", Open(MenuId::StatType)),
                 ("TABLE", Mode(CalcMode::Table)),
+                ("MATRIX", Mode(CalcMode::Matrix)),
             ]
         }
         MenuId::StatType => vec![("1-VAR", StatType(StatKind::OneVar)), ("A+BX", StatType(StatKind::Linear))],
@@ -95,6 +112,31 @@ fn entries(id: MenuId, kind: StatKind) -> Vec<(&'static str, MenuAction)> {
             ("CMPLX", Open(MenuId::CmplxFormat)),
         ],
         MenuId::CmplxFormat => vec![("a+bi", ComplexPolar(false)), ("r∠θ", ComplexPolar(true))],
+        MenuId::Matrix => vec![
+            ("Dim", Open(MenuId::MatSelect { define: true })),
+            ("Data", Open(MenuId::MatSelect { define: false })),
+            ("MatA", Insert(Token::Mat(MatId::A))),
+            ("MatB", Insert(Token::Mat(MatId::B))),
+            ("MatC", Insert(Token::Mat(MatId::C))),
+            ("MatAns", Insert(Token::Mat(MatId::Ans))),
+            ("det", Insert(Token::Func(Func::Det))),
+            ("Trn", Insert(Token::Func(Func::Trn))),
+        ],
+        MenuId::MatSelect { define } => MatId::STORED
+            .iter()
+            .map(|&id| (id.name(), if define { Open(MenuId::MatDim { id, more: false }) } else { EditMatrix(id) }))
+            .collect(),
+        MenuId::MatDim { id, more: false } => vec![
+            ("3×3", DefineMatrix(id, 3, 3)),
+            ("3×2", DefineMatrix(id, 3, 2)),
+            ("3×1", DefineMatrix(id, 3, 1)),
+            ("2×3", DefineMatrix(id, 2, 3)),
+            ("2×2", DefineMatrix(id, 2, 2)),
+            ("2×1", DefineMatrix(id, 2, 1)),
+        ],
+        MenuId::MatDim { id, more: true } => {
+            vec![("1×3", DefineMatrix(id, 1, 3)), ("1×2", DefineMatrix(id, 1, 2)), ("1×1", DefineMatrix(id, 1, 1))]
+        }
         MenuId::Cmplx => vec![
             ("arg", Insert(Token::Func(Func::Arg))),
             ("Conjg", Insert(Token::Func(Func::Conjg))),
@@ -158,6 +200,8 @@ fn title(id: MenuId) -> Option<&'static str> {
     match id {
         MenuId::StatFreq => Some("Frequency?"),
         MenuId::CmplxFormat => Some("Complex Result?"),
+        MenuId::MatSelect { .. } => Some("Matrix?"),
+        MenuId::MatDim { .. } => Some("m×n?"),
         MenuId::Clr => Some("Clear?"),
         MenuId::Drg => Some("DRG▸"),
         _ => None,
@@ -187,6 +231,8 @@ pub(crate) fn page(id: MenuId, down: bool) -> Option<MenuId> {
     match (id, down) {
         (MenuId::Setup, true) => Some(MenuId::Setup2),
         (MenuId::Setup2, false) => Some(MenuId::Setup),
+        (MenuId::MatDim { id, more: false }, true) => Some(MenuId::MatDim { id, more: true }),
+        (MenuId::MatDim { id, more: true }, false) => Some(MenuId::MatDim { id, more: false }),
         _ => None,
     }
 }

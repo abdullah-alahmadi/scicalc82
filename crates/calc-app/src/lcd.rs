@@ -1,7 +1,8 @@
 //! The display: status indicators plus whichever screen is active — the
 //! calculation lines, a menu, the STAT editor, or TABLE mode.
 
-use calc_core::calculator::{Pending, Phase, ResultLine, Screen};
+use calc_core::calculator::{Pending, Phase, Screen};
+use calc_core::eval::Outcome;
 use calc_core::format::{FormatSettings, Formatted, NumberFormat, format_decimal};
 use calc_core::input::{Editor, Var};
 use calc_core::key::Modifier;
@@ -22,6 +23,9 @@ const INPUT_SIZE: f32 = 17.0;
 const INPUT_HEIGHT: f32 = 48.0;
 const RESULT_SIZE: f32 = 20.0;
 const MIN_RESULT_SIZE: f32 = 11.0;
+/// Matrix results: a one-line input above, and cells may shrink further.
+const MATRIX_INPUT_HEIGHT: f32 = 24.0;
+const MIN_MATRIX_SIZE: f32 = 6.0;
 const INDICATOR_SIZE: f32 = 9.5;
 const MENU_SIZE: f32 = 13.0;
 const CELL_SIZE: f32 = 11.5;
@@ -50,6 +54,7 @@ pub fn draw(painter: &Painter, view: View, calc: &Calculator, cursor_visible: bo
         Screen::Calc => draw_calc(&painter, view, calc, cursor_visible),
         Screen::StatEditor => draw_stat_editor(&painter, view, calc, cursor_visible),
         Screen::Table => draw_table(&painter, view, calc, cursor_visible),
+        Screen::MatrixEditor => draw_matrix_editor(&painter, view, calc, cursor_visible),
     }
 }
 
@@ -77,6 +82,7 @@ fn draw_indicators(painter: &Painter, view: View, calc: &Calculator) {
         (140.0, format, !format.is_empty()),
         (166.0, "STAT", calc.mode() == CalcMode::Stat),
         (166.0, "CMPLX", calc.mode() == CalcMode::Cmplx),
+        (166.0, "MAT", calc.mode() == CalcMode::Matrix),
         (220.0, "Math", settings.format.natural),
         (260.0, "▲", on_calc && calc.history_len() > 0),
     ];
@@ -113,12 +119,17 @@ fn draw_calc(painter: &Painter, view: View, calc: &Calculator, cursor_visible: b
         return draw_error(painter, view, err.error, true);
     }
     let editing = matches!(calc.phase(), Phase::Editing);
-    let area = glass_rect(view, 6.0, 15.0, GLASS.2 - 12.0, INPUT_HEIGHT);
+    // A matrix result gets most of the display: its input shrinks to one line.
+    let matrix = matches!(calc.phase(), Phase::Result(v) if matches!(v.outcome, Outcome::Matrix(_)));
+    let (input_height, min_size) =
+        if matrix { (MATRIX_INPUT_HEIGHT, MIN_MATRIX_SIZE) } else { (INPUT_HEIGHT, MIN_RESULT_SIZE) };
+    let area = glass_rect(view, 6.0, 15.0, GLASS.2 - 12.0, input_height);
     draw_editor(painter, view, area, calc.editor(), editing, editing && cursor_visible);
     if let Some(lines) = calc.result_lines() {
-        let top = 15.0 + INPUT_HEIGHT;
+        let top = 15.0 + input_height;
         let area = glass_rect(view, 6.0, top, GLASS.2 - 12.0, GLASS.3 - top - 2.0);
-        draw_result(painter, view, area, &lines, calc.settings().format.natural);
+        let nodes = result_nodes(&lines, calc.settings().format.natural);
+        fit(painter, view, area, &nodes, RESULT_SIZE, min_size, true, theme::LCD_INK);
     }
 }
 
@@ -167,10 +178,6 @@ fn fit(painter: &Painter, view: View, area: Rect, nodes: &[Node], size: f32, min
     paint(&painter.with_clip_rect(area), &laid, origin, scale, color);
 }
 
-fn draw_result(painter: &Painter, view: View, area: Rect, lines: &[ResultLine], natural: bool) {
-    fit(painter, view, area, &result_nodes(lines, natural), RESULT_SIZE, MIN_RESULT_SIZE, true, theme::LCD_INK);
-}
-
 fn draw_error(painter: &Painter, view: View, error: CalcError, goto: bool) {
     let center = GLASS.2 / 2.0;
     text(painter, view, center, 38.0, &error.to_string(), 20.0, Align2::CENTER_CENTER, theme::LCD_INK);
@@ -215,6 +222,8 @@ fn cell_nodes(value: &Value, number: NumberFormat) -> Vec<Node> {
 }
 
 struct Grid<'a> {
+    /// Shown in the top-left corner, such as the matrix's name.
+    title: Option<&'static str>,
     headers: Vec<&'static str>,
     /// Rows to draw: (row number, cells), with `None` for a blank cell.
     rows: Vec<(usize, Vec<Option<Vec<Node>>>)>,
@@ -236,6 +245,9 @@ fn draw_grid(view: View, grid: &Grid<'_>) {
     let ink = theme::LCD_INK;
     let (left, width) = (28.0, GLASS.2 - 32.0);
     let column_w = width / grid.headers.len() as f32;
+    if let Some(title) = grid.title {
+        text(painter, view, 4.0, GRID_TOP + 6.0, title, 10.0, Align2::LEFT_CENTER, ink);
+    }
     for (c, header) in grid.headers.iter().enumerate() {
         let x = left + column_w * (c as f32 + 0.5);
         text(painter, view, x, GRID_TOP + 6.0, header, 10.0, Align2::CENTER_CENTER, ink);
@@ -281,7 +293,7 @@ fn draw_stat_editor(painter: &Painter, view: View, calc: &Calculator, cursor_vis
         .map(|r| (r + 1, columns.iter().map(|&c| stats.get(r, c).map(|v| cell_nodes(v, number))).collect()))
         .collect();
     let headers = columns.iter().map(|c| c.label()).collect();
-    draw_grid(view, &Grid { headers, rows, selected: (ed.row, ed.column), painter });
+    draw_grid(view, &Grid { title: None, headers, rows, selected: (ed.row, ed.column), painter });
 
     let area = bottom_area(view);
     if let Some(error) = ed.error {
@@ -291,6 +303,30 @@ fn draw_stat_editor(painter: &Painter, view: View, calc: &Calculator, cursor_vis
         draw_editor(painter, view, area, &ed.input, true, cursor_visible);
     } else if let Some(value) = columns.get(ed.column).and_then(|&c| stats.get(ed.row, c)) {
         let nodes = formatted_nodes(&calc.format(value), calc.settings().format.natural);
+        fit(painter, view, area, &nodes, 16.0, 9.0, false, theme::LCD_INK);
+    }
+}
+
+/// Entering a matrix: its cells in a grid, with the value being typed (or
+/// the highlighted cell's value) underneath.
+fn draw_matrix_editor(painter: &Painter, view: View, calc: &Calculator, cursor_visible: bool) {
+    let ed = calc.matrix_editor();
+    let Some(m) = calc.matrices().slot(ed.id) else { return };
+    let number = calc.settings().format.number;
+    let rows = (0..m.rows())
+        .map(|r| (r + 1, (0..m.cols()).map(|c| Some(cell_nodes(m.get(r, c), number))).collect()))
+        .collect();
+    let headers = ["1", "2", "3"][..m.cols()].to_vec();
+    draw_grid(view, &Grid { title: Some(ed.id.name()), headers, rows, selected: (ed.row, ed.col), painter });
+
+    let area = bottom_area(view);
+    if let Some(error) = ed.error {
+        let y = (BOTTOM_TOP + GLASS.3) / 2.0;
+        text(painter, view, GLASS.2 - 8.0, y, &error.to_string(), 13.0, Align2::RIGHT_CENTER, theme::LCD_INK);
+    } else if !ed.input.is_empty() {
+        draw_editor(painter, view, area, &ed.input, true, cursor_visible);
+    } else {
+        let nodes = formatted_nodes(&calc.format(m.get(ed.row, ed.col)), calc.settings().format.natural);
         fit(painter, view, area, &nodes, 16.0, 9.0, false, theme::LCD_INK);
     }
 }
@@ -327,7 +363,13 @@ fn draw_table(painter: &Painter, view: View, calc: &Calculator, cursor_visible: 
                 .collect();
             draw_grid(
                 view,
-                &Grid { headers: vec!["X", "F(X)"], rows, selected: (table.selected, table.column), painter },
+                &Grid {
+                    title: None,
+                    headers: vec!["X", "F(X)"],
+                    rows,
+                    selected: (table.selected, table.column),
+                    painter,
+                },
             );
             let Some(row) = table.rows.get(table.selected) else { return };
             let nodes = match (table.column, &row.fx) {

@@ -279,6 +279,7 @@ mod tests {
             "1:Type 2:Data 3:Sum 4:Var 5:Reg 6:MinMax Σx² Σx Σy² Σy Σxy n σx sx σy sy minX maxX minY maxY",
             "sin( cos( tan( log( ln( Pol( Rec( RanInt#( Rnd( Abs( √( Ans Ran# π e ×10 − - × ÷ ° ′ ″ ! % , ( )",
             "r= θ= X= Y= f(X)= Table Range Start? End? Step? F(X) ERROR 1234567890.",
+            "MAT 5:MATRIX Matrix? 1:MatA 2:MatB 3:MatC m×n? 1:3×3 1:Dim 2:Data 6:MatAns 7:det 8:Trn Dimension ERROR det( Trn(",
             "CMPLX 2:CMPLX 1:arg 2:Conjg 3:▸r∠θ 4:▸a+bi Complex Result? 1:a+bi 2:r∠θ 1+2i √2∠45 arg( Conjg(",
         ];
         for text in samples {

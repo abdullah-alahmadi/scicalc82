@@ -9,6 +9,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+use crate::matrix::MatId;
 use crate::stats::StatVar;
 
 /// Functions that are entered as a name plus an opening parenthesis.
@@ -40,6 +41,10 @@ pub enum Func {
     Arg,
     /// CMPLX: the complex conjugate.
     Conjg,
+    /// MATRIX: the determinant.
+    Det,
+    /// MATRIX: the transpose.
+    Trn,
 }
 
 impl Func {
@@ -68,6 +73,8 @@ impl Func {
             Self::Abs => "Abs(",
             Self::Arg => "arg(",
             Self::Conjg => "Conjg(",
+            Self::Det => "det(",
+            Self::Trn => "Trn(",
         }
     }
 }
@@ -157,6 +164,8 @@ pub enum Token {
     ToPolar,
     /// Show the result in rectangular form, ▸a+bi (CMPLX mode, at the end of the input).
     ToRect,
+    /// A matrix variable (MATRIX mode).
+    Mat(MatId),
 }
 
 impl Token {
@@ -205,6 +214,7 @@ impl fmt::Display for Token {
             Self::Angle => "∠",
             Self::ToPolar => "▸r∠θ",
             Self::ToRect => "▸a+bi",
+            Self::Mat(m) => m.name(),
         };
         f.write_str(text)
     }

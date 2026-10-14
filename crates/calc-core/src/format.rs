@@ -75,6 +75,19 @@ pub enum Formatted {
     Pi(PiText),
     Dms(DmsText),
     Complex(ComplexText),
+    Matrix(MatrixText),
+}
+
+/// A matrix result: its cells, row by row, each formatted like a real result.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MatrixText {
+    pub rows: Vec<Vec<Formatted>>,
+}
+
+pub fn format_matrix(m: &crate::matrix::Matrix, settings: &FormatSettings, form: ResultForm) -> Formatted {
+    let rows =
+        (0..m.rows()).map(|r| (0..m.cols()).map(|c| format_value(m.get(r, c), settings, form)).collect()).collect();
+    Formatted::Matrix(MatrixText { rows })
 }
 
 /// A complex result, each part formatted like a real result.
@@ -334,7 +347,23 @@ impl fmt::Display for Formatted {
             Self::Pi(p) => p.fmt(f),
             Self::Dms(d) => d.fmt(f),
             Self::Complex(c) => c.fmt(f),
+            Self::Matrix(m) => m.fmt(f),
         }
+    }
+}
+
+/// `[[1, 2], [3, 4]]`
+impl fmt::Display for MatrixText {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("[")?;
+        for (i, row) in self.rows.iter().enumerate() {
+            if i > 0 {
+                f.write_str(", ")?;
+            }
+            let cells: Vec<String> = row.iter().map(ToString::to_string).collect();
+            write!(f, "[{}]", cells.join(", "))?;
+        }
+        f.write_str("]")
     }
 }
 

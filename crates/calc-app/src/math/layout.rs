@@ -181,9 +181,58 @@ fn single(ctx: &Ctx<'_>, node: &Node, size: f32) -> Laid {
             out.place(inner, 2.0 * pad, 0.0);
             out.width = width;
         }
+        Node::Matrix(rows) => matrix(ctx, &mut out, rows, size),
         Node::Sup(_) | Node::Sub(_) | Node::Cursor => unreachable!("handled by row"),
     }
     out
+}
+
+/// A grid of cells in square brackets, centered on the fraction-bar axis.
+/// Cells are right-aligned in their columns, like numbers in a table.
+fn matrix(ctx: &Ctx<'_>, out: &mut Laid, rows: &[Vec<Vec<Node>>], size: f32) {
+    let cells: Vec<Vec<Laid>> = rows.iter().map(|r| r.iter().map(|c| row(ctx, c, size)).collect()).collect();
+    let columns = cells.iter().map(Vec::len).max().unwrap_or(0);
+    let column_w: Vec<f32> =
+        (0..columns).map(|c| cells.iter().filter_map(|r| r.get(c)).map(|l| l.width).fold(0.0, f32::max)).collect();
+    let extents: Vec<(f32, f32)> = cells
+        .iter()
+        .map(|r| r.iter().fold((ASCENT * size, DESCENT * size), |(a, d), l| (a.max(l.ascent), d.max(l.descent))))
+        .collect();
+    let (gap_x, gap_y, bracket, pad) = (0.8 * size, 0.25 * size, 0.45 * size, 0.12 * size);
+    let height = extents.iter().map(|(a, d)| a + d).sum::<f32>() + gap_y * extents.len().saturating_sub(1) as f32;
+    let top = -AXIS * size - height / 2.0;
+
+    let mut y = top;
+    for (row, (ascent, descent)) in cells.into_iter().zip(&extents) {
+        let mut x = bracket;
+        for (c, cell) in row.into_iter().enumerate() {
+            let cell_x = x + column_w[c] - cell.width;
+            out.place(cell, cell_x, y + ascent);
+            x += column_w[c] + gap_x;
+        }
+        y += ascent + descent + gap_y;
+    }
+
+    let width = 2.0 * bracket + column_w.iter().sum::<f32>() + gap_x * columns.saturating_sub(1) as f32;
+    let (y0, y1) = (top - pad, top + height + pad);
+    let (inner, outer) = (bracket * 0.75, bracket * 0.3);
+    let line = LINE * size;
+    out.prims.push(Prim::Path {
+        points: vec![pos2(inner, y0), pos2(outer, y0), pos2(outer, y1), pos2(inner, y1)],
+        width: line,
+    });
+    out.prims.push(Prim::Path {
+        points: vec![
+            pos2(width - inner, y0),
+            pos2(width - outer, y0),
+            pos2(width - outer, y1),
+            pos2(width - inner, y1),
+        ],
+        width: line,
+    });
+    out.ascent = out.ascent.max(-y0 + line);
+    out.descent = out.descent.max(y1 + line);
+    out.width = width;
 }
 
 fn fraction(ctx: &Ctx<'_>, out: &mut Laid, num: &[Node], den: &[Node], size: f32) {
@@ -317,6 +366,22 @@ mod tests {
         let indexed = layout(&[Node::Root { index: Some(vec![t("10")]), radicand: vec![t("2")] }], 10.0, &Mono);
         let radicand_x = texts(&indexed).iter().find(|(s, ..)| s == "2").unwrap().1.x;
         assert!(radicand_x > content_x);
+    }
+
+    #[test]
+    fn matrices_are_bracketed_grids() {
+        let cell = |s: &str| vec![t(s)];
+        let laid =
+            layout(&[Node::Matrix(vec![vec![cell("1"), cell("22")], vec![cell("333"), cell("4")]])], 10.0, &Mono);
+        let parts = texts(&laid);
+        let pos = |s: &str| parts.iter().find(|(text, ..)| text == s).unwrap().1;
+        // Rows stack, and cells right-align in their column.
+        assert!(pos("333").y > pos("1").y);
+        assert_eq!(pos("1").x + 6.0, pos("333").x + 18.0);
+        assert_eq!(pos("22").x + 12.0, pos("4").x + 6.0);
+        // Two bracket paths, and the block sits around the axis.
+        assert_eq!(laid.prims.iter().filter(|p| matches!(p, Prim::Path { .. })).count(), 2);
+        assert!(laid.ascent > 10.0 && laid.descent > 5.0);
     }
 
     #[test]

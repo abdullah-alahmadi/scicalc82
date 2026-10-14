@@ -108,7 +108,7 @@ const LOWER: [[Option<KeySpec>; 5]; 4] = [
         spec(Key::Ac, "AC", None, None, Style::Accent),
     ],
     [
-        num(Key::Digit(4), "4", None, None),
+        num(Key::Digit(4), "4", Some("MATRIX"), None),
         num(Key::Digit(5), "5", None, None),
         num(Key::Digit(6), "6", None, None),
         num(Key::Times, "×", Some("nPr"), None),

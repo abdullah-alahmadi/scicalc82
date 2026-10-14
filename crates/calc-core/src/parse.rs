@@ -176,6 +176,7 @@ impl<'a> Parser<'a> {
                     | Token::Var(_)
                     | Token::Stat(_)
                     | Token::Imag
+                    | Token::Mat(_)
             ),
             Some(Item::Template(t)) => t.kind != TemplateKind::Power,
             None => false,
@@ -308,6 +309,7 @@ impl<'a> Parser<'a> {
             Token::Var(v) => ExprKind::Var(v),
             Token::Stat(v) => ExprKind::Stat(v),
             Token::Imag => ExprKind::Imag,
+            Token::Mat(m) => ExprKind::Mat(m),
             _ => return Err(self.error(CalcError::Syntax)),
         };
         self.pos += 1;

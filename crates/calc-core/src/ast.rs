@@ -2,6 +2,7 @@
 
 use crate::error::CalcError;
 use crate::input::{Cursor, Func, Var};
+use crate::matrix::MatId;
 use crate::stats::StatVar;
 use crate::value::Value;
 
@@ -29,6 +30,8 @@ pub enum ExprKind {
     Ran,
     /// The imaginary unit i (CMPLX mode).
     Imag,
+    /// A matrix variable (MATRIX mode).
+    Mat(MatId),
     Stat(StatVar),
     Unary(UnaryOp, Box<Expr>),
     Binary(BinaryOp, Box<Expr>, Box<Expr>),

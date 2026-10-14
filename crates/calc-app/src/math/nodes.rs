@@ -25,6 +25,8 @@ pub enum Node {
     },
     /// The LineIO fraction mark ⌟, drawn since no bundled font has it.
     FracMark,
+    /// A matrix: rows of cells, drawn in square brackets.
+    Matrix(Vec<Vec<Vec<Node>>>),
     /// An empty slot, drawn as a small box.
     Empty,
     /// Where the input cursor is.
@@ -309,6 +311,9 @@ pub fn formatted_nodes(f: &Formatted, natural: bool) -> Vec<Node> {
             }
             out.push(text("i"));
         }
+        Formatted::Matrix(m) => out.push(Node::Matrix(
+            m.rows.iter().map(|row| row.iter().map(|cell| formatted_nodes(cell, natural)).collect()).collect(),
+        )),
         Formatted::Complex(ComplexText::Polar { r, theta }) => {
             out.extend(formatted_nodes(r, natural));
             out.push(text("∠"));

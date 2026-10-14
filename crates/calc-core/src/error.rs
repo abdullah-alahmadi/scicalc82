@@ -18,6 +18,9 @@ pub enum CalcError {
     /// Too much data, such as a TABLE with more than 30 rows.
     #[error("Insufficient MEM")]
     Memory,
+    /// Matrix sizes that don't fit the operation, such as adding 2×2 and 3×1.
+    #[error("Dimension ERROR")]
+    Dimension,
 }
 
 pub type CalcResult<T> = Result<T, CalcError>;

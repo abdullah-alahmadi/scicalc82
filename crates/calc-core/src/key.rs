@@ -87,6 +87,8 @@ pub(crate) enum Action {
     StatMenu,
     /// SHIFT 2: the CMPLX menu (CMPLX mode only).
     CmplxMenu,
+    /// SHIFT 4: the MATRIX menu (MATRIX mode only).
+    MatrixMenu,
     Mode,
     Setup,
     Nothing,
@@ -155,6 +157,7 @@ pub(crate) fn action(key: Key, modifier: Modifier) -> Action {
         (Key::Digit(9), Shift) => Action::ClrMenu,
         (Key::Digit(1), Shift) => Action::StatMenu,
         (Key::Digit(2), Shift) => Action::CmplxMenu,
+        (Key::Digit(4), Shift) => Action::MatrixMenu,
         (Key::Digit(0), Shift) => func(Func::Rnd),
         (Key::Digit(d), _) => Insert(Token::Digit(d)),
         (Key::Del, _) => Action::Del,

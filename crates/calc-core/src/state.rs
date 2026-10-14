@@ -23,6 +23,8 @@ pub enum CalcMode {
     Cmplx,
     Stat,
     Table,
+    /// Matrices up to 3×3: MatA–MatC and MatAns.
+    Matrix,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

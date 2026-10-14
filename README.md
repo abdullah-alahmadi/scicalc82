@@ -22,6 +22,7 @@ The name, look and code are original.
   - **CMPLX:** complex numbers in rectangular (`a+bi`) and polar (`r∠θ`) form, with exact results such as `2∠30 = √3+i`. Supports + − × ÷, integer powers, Abs, arg, Conjg and conversion between the two forms.
   - **STAT:** 1-VAR statistics and A+BX linear regression, with a data editor and an optional FREQ column.
   - **TABLE:** values of f(X) over a range.
+  - **MATRIX:** matrices up to 3×3 (MatA, MatB, MatC and MatAns) with exact entries. Supports + − ×, multiplying or dividing by a number, x², x³ and integer powers, the inverse (x⁻¹), det, Trn (transpose) and Abs.
 - **Persistence:** settings, memory, mode, STAT data and the TABLE setup are saved between launches. On Windows the file is `%APPDATA%\scicalc82\data\app.ron`. If the file is damaged, the app starts fresh instead of failing.
 
 ## Build and run
@@ -77,13 +78,18 @@ Click the keys, or use the PC keyboard. Hovering over the model name in the app 
 | Ctrl+C | Copy the result |
 
 The modes work like the device:
-- **MODE:** 1 for COMP, 2 for CMPLX, 3 for STAT, 4 for TABLE.
+- **MODE:** 1 for COMP, 2 for CMPLX, 3 for STAT, 4 for TABLE, 5 for MATRIX.
 - **SHIFT MODE:** opens SETUP. ▼ shows its second page, which includes the CMPLX result format (a+bi or r∠θ).
 - **CMPLX mode:**
   - The ENG key types `i`, and SHIFT (−) types `∠`. Angles use the current angle unit.
   - SHIFT 2 opens the CMPLX menu: arg, Conjg, ▸r∠θ and ▸a+bi. Put ▸r∠θ or ▸a+bi at the end of a calculation to show its result in that form.
   - √ of a negative number gives an imaginary result. Real-only functions such as sin and log reject complex numbers, as on the device.
 - **STAT mode:** SHIFT 1 opens the STAT menu (Type, Data, Sum, Var, Reg, MinMax).
+- **MATRIX mode:**
+  - On entering the mode, choose a matrix and its size (1×1 to 3×3; ▼ shows the 1×n sizes), then type each cell followed by =. AC returns to calculations.
+  - SHIFT 4 opens the MATRIX menu: Dim (resize a matrix), Data (edit its cells), MatA, MatB, MatC, MatAns, det and Trn.
+  - Matrix results are drawn in brackets and become MatAns; results that are numbers, such as det, become Ans.
+  - Mismatched sizes give a Dimension ERROR, and inverting a singular matrix gives a Math ERROR.
 - **CLR (SHIFT 9):** resets setup, memory, or both.
 
 ## Project layout

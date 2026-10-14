@@ -5,9 +5,12 @@ use serde::{Deserialize, Serialize};
 use crate::ast::LocatedError;
 use crate::error::{CalcError, CalcResult};
 use crate::eval::{Env, Outcome, evaluate};
-use crate::format::{Formatted, ResultForm, format_dms, format_eng, format_polar, format_rect, format_value};
+use crate::format::{
+    Formatted, ResultForm, format_dms, format_eng, format_matrix, format_polar, format_rect, format_value,
+};
 use crate::input::{Cursor, Editor, Func, Item, Row, TemplateKind, Token, Var};
 use crate::key::{Action, Key, Modifier, action, hyperbolic, var_for_key};
+use crate::matrix::{MatId, Matrices, Matrix};
 use crate::menu::{self, MenuAction, MenuId, MenuView};
 use crate::number::Number;
 use crate::parse::{ComplexForm, parse, parse_statement};
@@ -66,6 +69,31 @@ pub enum Screen {
     Calc,
     StatEditor,
     Table,
+    /// Entering a matrix's cells (MATRIX mode).
+    MatrixEditor,
+}
+
+/// The matrix being edited, its highlighted cell, and the value being typed.
+#[derive(Clone, Debug)]
+pub struct MatrixEditor {
+    pub id: MatId,
+    pub row: usize,
+    pub col: usize,
+    pub input: Editor,
+    /// An error from the last entry, shown until the next key.
+    pub error: Option<CalcError>,
+}
+
+impl MatrixEditor {
+    fn new(id: MatId) -> Self {
+        Self { id, row: 0, col: 0, input: Editor::new(), error: None }
+    }
+}
+
+impl Default for MatrixEditor {
+    fn default() -> Self {
+        Self::new(MatId::A)
+    }
 }
 
 /// The STAT editor's highlighted cell and the value being typed into it.
@@ -110,6 +138,8 @@ pub struct Calculator {
     stats: StatData,
     stat_editor: StatEditor,
     table: Table,
+    matrices: Matrices,
+    matrix_editor: MatrixEditor,
 }
 
 /// What survives switching the calculator off and on: setup, memory, mode,
@@ -124,6 +154,8 @@ pub struct Snapshot {
     pub table_start: Value,
     pub table_end: Value,
     pub table_step: Value,
+    #[serde(default)]
+    pub matrices: Matrices,
 }
 
 /// The tokens a template key types in LineIO, which has no templates.
@@ -189,6 +221,7 @@ impl Calculator {
             table_start: self.table.start.clone(),
             table_end: self.table.end.clone(),
             table_step: self.table.step.clone(),
+            matrices: self.matrices.clone(),
         }
     }
 
@@ -202,7 +235,10 @@ impl Calculator {
         calc.table.start = snapshot.table_start;
         calc.table.end = snapshot.table_end;
         calc.table.step = snapshot.table_step;
+        calc.matrices = snapshot.matrices;
         calc.set_mode(snapshot.mode);
+        // MATRIX mode starts on the calculation screen, not the matrix prompt.
+        calc.menu = None;
         // STAT mode starts on the calculation screen; SHIFT 1 2 opens the data.
         if snapshot.mode == CalcMode::Stat {
             calc.screen = Screen::Calc;
@@ -263,6 +299,14 @@ impl Calculator {
         &self.table
     }
 
+    pub fn matrices(&self) -> &Matrices {
+        &self.matrices
+    }
+
+    pub fn matrix_editor(&self) -> &MatrixEditor {
+        &self.matrix_editor
+    }
+
     /// A value in the current display format, as STAT and TABLE cells show it.
     pub fn format(&self, value: &Value) -> Formatted {
         format_value(value, &self.settings.format, ResultForm::Standard)
@@ -308,6 +352,9 @@ impl Calculator {
             Outcome::Single(n) => vec![ResultLine { label: None, value: show_number(n) }],
             Outcome::Polar { r, theta } => vec![line(Some("r"), r), line(Some("θ"), theta)],
             Outcome::Rect { x, y } => vec![line(Some("X"), x), line(Some("Y"), y)],
+            Outcome::Matrix(m) => {
+                vec![ResultLine { label: None, value: format_matrix(m, &self.settings.format, view.form) }]
+            }
         })
     }
 
@@ -351,6 +398,7 @@ impl Calculator {
             Screen::Calc => self.calc_key(key, modifier, action),
             Screen::StatEditor => self.stat_editor_key(action),
             Screen::Table => self.table_key(action),
+            Screen::MatrixEditor => self.matrix_editor_key(action),
         }
     }
 
@@ -408,10 +456,24 @@ impl Calculator {
                 Screen::Table => {
                     self.editor.insert_token(token);
                 }
+                Screen::MatrixEditor => {
+                    self.matrix_editor.input.insert_token(token);
+                }
             },
             MenuAction::Clear(choice) => self.clear_memory(choice),
             MenuAction::StatEditor => self.screen = Screen::StatEditor,
             MenuAction::ComplexPolar(polar) => self.settings.complex_polar = polar,
+            MenuAction::DefineMatrix(id, rows, cols) => {
+                *self.matrices.slot_mut(id) = Matrix::zeros(rows, cols);
+                self.open_matrix_editor(id);
+            }
+            MenuAction::EditMatrix(id) => {
+                if self.matrices.slot(id).is_some() {
+                    self.open_matrix_editor(id);
+                } else {
+                    self.menu = Some(MenuId::MatDim { id, more: false });
+                }
+            }
         }
     }
 
@@ -420,6 +482,11 @@ impl Calculator {
         self.clear_entry();
         self.screen = match mode {
             CalcMode::Comp | CalcMode::Cmplx => Screen::Calc,
+            // Like the device, MATRIX mode starts by asking which matrix to set up.
+            CalcMode::Matrix => {
+                self.menu = Some(MenuId::MatSelect { define: true });
+                Screen::Calc
+            }
             CalcMode::Stat => Screen::StatEditor,
             CalcMode::Table => {
                 self.show_table_stage(TableStage::Function);
@@ -544,6 +611,11 @@ impl Calculator {
                 }
             }
             Action::CmplxMenu => self.open_menu(MenuId::Cmplx),
+            Action::MatrixMenu => {
+                if self.mode == CalcMode::Matrix {
+                    self.open_menu(MenuId::Matrix);
+                }
+            }
             Action::Mode | Action::Setup | Action::DrgMenu | Action::ClrMenu | Action::Nothing => {}
         }
     }
@@ -629,6 +701,7 @@ impl Calculator {
         }
         if choice != 1 {
             self.memory = Memory::default();
+            self.matrices = Matrices::default();
         }
         if choice == 3 {
             self.history.clear();
@@ -678,12 +751,17 @@ impl Calculator {
         let row = self.editor.root().clone();
         let stats = (self.mode == CalcMode::Stat).then_some(&self.stats);
         let complex = self.mode == CalcMode::Cmplx;
-        let mut env = Env { settings: &self.settings, memory: &self.memory, rng: &mut self.rng, stats, complex };
+        let matrices = (self.mode == CalcMode::Matrix).then_some(&self.matrices);
+        let mut env =
+            Env { settings: &self.settings, memory: &self.memory, rng: &mut self.rng, stats, complex, matrices };
         let result = parse_statement(&row)
             .and_then(|(expr, complex_form)| evaluate(&expr, &mut env).map(|outcome| (outcome, complex_form)));
         match result {
             Ok((outcome, complex_form)) => {
-                self.memory.ans = outcome.primary();
+                match &outcome {
+                    Outcome::Matrix(m) => self.matrices.ans = Some(m.clone()),
+                    other => self.memory.ans = other.primary().expect("non-matrix outcomes have a number"),
+                }
                 if self.history.len() == MAX_HISTORY {
                     self.history.remove(0);
                 }
@@ -703,9 +781,9 @@ impl Calculator {
     /// evaluated now, or Ans for an empty input.
     fn current_value(&mut self) -> Option<Number> {
         match &self.phase {
-            Phase::Result(view) => Some(view.outcome.primary()),
+            Phase::Result(view) => view.outcome.primary(),
             _ if self.editor.is_empty() => Some(self.memory.ans.clone()),
-            _ => self.execute(ResultForm::Standard).map(|o| o.primary()),
+            _ => self.execute(ResultForm::Standard).and_then(|o| o.primary()),
         }
     }
 
@@ -734,9 +812,16 @@ impl Calculator {
 
     /// Evaluates a standalone input: a STAT cell or a TABLE range value.
     fn evaluate_input(&mut self, row: &Row) -> CalcResult<Value> {
-        let mut env =
-            Env { settings: &self.settings, memory: &self.memory, rng: &mut self.rng, stats: None, complex: false };
-        parse(row).and_then(|expr| evaluate(&expr, &mut env)).map_err(|e| e.error)?.primary().into_real()
+        let mut env = Env {
+            settings: &self.settings,
+            memory: &self.memory,
+            rng: &mut self.rng,
+            stats: None,
+            complex: false,
+            matrices: None,
+        };
+        let outcome = parse(row).and_then(|expr| evaluate(&expr, &mut env)).map_err(|e| e.error)?;
+        outcome.primary().ok_or(CalcError::Math)?.into_real()
     }
 
     // ---- STAT editor ----
@@ -786,6 +871,65 @@ impl Calculator {
                 self.stat_editor.row = (self.stat_editor.row + 1).min(self.stats.rows.len());
             }
             Err(e) => self.stat_editor.error = Some(e),
+        }
+    }
+
+    // ---- Matrix editor ----
+
+    fn open_matrix_editor(&mut self, id: MatId) {
+        self.matrix_editor = MatrixEditor::new(id);
+        self.screen = Screen::MatrixEditor;
+    }
+
+    fn matrix_editor_key(&mut self, action: Action) {
+        if self.matrix_editor.error.take().is_some() {
+            return;
+        }
+        let Some(m) = self.matrices.slot(self.matrix_editor.id) else {
+            self.screen = Screen::Calc;
+            return;
+        };
+        let (rows, cols) = (m.rows(), m.cols());
+        let natural = self.settings.format.natural;
+        let typing = !self.matrix_editor.input.is_empty();
+        let ed = &mut self.matrix_editor;
+        match action {
+            Action::Equals => self.commit_matrix_cell(),
+            Action::Ac if typing => ed.input.clear(),
+            Action::Ac => {
+                self.screen = Screen::Calc;
+                self.clear_entry();
+            }
+            Action::Up if !typing => ed.row = ed.row.saturating_sub(1),
+            Action::Down if !typing => ed.row = (ed.row + 1).min(rows - 1),
+            Action::Left if !typing => ed.col = ed.col.saturating_sub(1),
+            Action::Right if !typing => ed.col = (ed.col + 1).min(cols - 1),
+            Action::MatrixMenu => self.open_menu(MenuId::Matrix),
+            other => edit(&mut ed.input, other, natural),
+        }
+    }
+
+    /// Stores the typed value in the highlighted cell and moves to the next
+    /// cell, row by row.
+    fn commit_matrix_cell(&mut self) {
+        if self.matrix_editor.input.is_empty() {
+            return;
+        }
+        let row = self.matrix_editor.input.root().clone();
+        match self.evaluate_input(&row) {
+            Ok(value) => {
+                let ed = &mut self.matrix_editor;
+                let Some(m) = self.matrices.slot_mut(ed.id) else { return };
+                m.set(ed.row, ed.col, value);
+                ed.input.clear();
+                if ed.col + 1 < m.cols() {
+                    ed.col += 1;
+                } else if ed.row + 1 < m.rows() {
+                    ed.row += 1;
+                    ed.col = 0;
+                }
+            }
+            Err(e) => self.matrix_editor.error = Some(e),
         }
     }
 
@@ -869,9 +1013,17 @@ impl Calculator {
         for x in xs {
             let mut memory = self.memory.clone();
             memory.set(Var::X, Number::Real(x.clone()));
-            let mut env =
-                Env { settings: &self.settings, memory: &memory, rng: &mut self.rng, stats: None, complex: false };
-            let fx = evaluate(&expr, &mut env).map_err(|e| e.error).and_then(|o| o.primary().into_real());
+            let mut env = Env {
+                settings: &self.settings,
+                memory: &memory,
+                rng: &mut self.rng,
+                stats: None,
+                complex: false,
+                matrices: None,
+            };
+            let fx = evaluate(&expr, &mut env)
+                .map_err(|e| e.error)
+                .and_then(|o| o.primary().ok_or(CalcError::Math)?.into_real());
             rows.push(TableRow { x, fx });
         }
         Ok(rows)
@@ -1353,6 +1505,98 @@ mod tests {
         let mut calc = run("mode 2 eng = mode 3 1 ans =");
         assert_eq!(calc.stat_editor().error, Some(CalcError::Math));
         keys(&mut calc, "ac");
+    }
+
+    /// MATRIX mode with MatA = [[1, 2], [3, 4]] and MatB = the 2×2 identity.
+    /// MODE 5 asks which matrix to size; 5 is 2×2.
+    fn matrix_session() -> Calculator {
+        run("mode 5 1 5 1 = 2 = 3 = 4 = ac S 4 1 2 5 1 = 0 = 0 = 1 = ac")
+    }
+
+    fn matrix(script: &str) -> String {
+        let mut calc = matrix_session();
+        keys(&mut calc, script);
+        calc.result_text().unwrap_or_else(|| panic!("no result for {script:?}: {:?}", calc.phase()))
+    }
+
+    #[test]
+    fn defining_matrices() {
+        let calc = matrix_session();
+        assert_eq!(calc.mode(), CalcMode::Matrix);
+        assert_eq!(calc.screen(), Screen::Calc);
+        let a = calc.matrices().get(MatId::A).unwrap();
+        assert_eq!((a.rows(), a.cols()), (2, 2));
+        assert_eq!(a.get(1, 0), &Value::integer(3));
+        // SHIFT 4 3 types MatA.
+        assert_eq!(matrix("S 4 3 ="), "[[1, 2], [3, 4]]");
+        // The size menu's second page has the 1×n sizes.
+        let mut calc = run("mode 5 3 down 1 7 = 8 = 9 = ac S 4 5 =");
+        assert_eq!(calc.result_text().unwrap(), "[[7, 8, 9]]");
+        // Data (SHIFT 4 2) reopens a matrix to change a cell.
+        keys(&mut calc, "S 4 2 3 right 0 = ac S 4 5 =");
+        assert_eq!(calc.result_text().unwrap(), "[[7, 0, 9]]");
+    }
+
+    #[test]
+    fn matrix_arithmetic() {
+        assert_eq!(matrix("S 4 3 + S 4 4 ="), "[[2, 2], [3, 5]]");
+        assert_eq!(matrix("S 4 3 - S 4 4 ="), "[[0, 2], [3, 3]]");
+        assert_eq!(matrix("S 4 3 * S 4 3 ="), "[[7, 10], [15, 22]]");
+        assert_eq!(matrix("S 4 3 sq ="), "[[7, 10], [15, 22]]");
+        assert_eq!(matrix("2 S 4 3 ="), "[[2, 4], [6, 8]]");
+        assert_eq!(matrix("S 4 3 / 2 ="), "[[1/2, 1], [3/2, 2]]");
+        assert_eq!(matrix("neg S 4 3 ="), "[[-1, -2], [-3, -4]]");
+        assert_eq!(matrix("S 4 3 recip ="), "[[-2, 1], [3/2, -1/2]]");
+        assert_eq!(matrix("S 4 3 * S 4 3 recip ="), "[[1, 0], [0, 1]]");
+        assert_eq!(matrix("S 4 3 pow 3 ="), "[[37, 54], [81, 118]]");
+        assert_eq!(matrix("abs neg S 4 3 ="), "[[1, 2], [3, 4]]");
+    }
+
+    #[test]
+    fn matrix_functions() {
+        assert_eq!(matrix("S 4 7 S 4 3 ) ="), "-2");
+        assert_eq!(matrix("S 4 8 S 4 3 ) ="), "[[1, 3], [2, 4]]");
+        // det gives a number, which becomes Ans; matrix results become MatAns.
+        let mut calc = matrix_session();
+        keys(&mut calc, "S 4 7 S 4 3 ) = S 4 3 * 2 =");
+        assert_eq!(calc.memory().ans, Number::Real(Value::integer(-2)));
+        keys(&mut calc, "S 4 6 + S 4 6 =");
+        assert_eq!(calc.result_text().unwrap(), "[[4, 8], [12, 16]]");
+    }
+
+    #[test]
+    fn matrix_errors() {
+        let error_of = |script: &str| {
+            let mut calc = matrix_session();
+            keys(&mut calc, script);
+            calc.error().unwrap_or_else(|| panic!("no error for {script:?}"))
+        };
+        // MatC is 3×1.
+        let mut calc = matrix_session();
+        keys(&mut calc, "S 4 1 3 3 1 = 2 = 3 = ac S 4 3 * S 4 5 =");
+        assert_eq!(calc.error(), Some(CalcError::Dimension));
+        assert_eq!(error_of("S 4 3 + 1 ="), CalcError::Math);
+        assert_eq!(error_of("S 4 5 ="), CalcError::Dimension); // MatC not defined
+        assert_eq!(error_of("sin S 4 3 ) ="), CalcError::Math);
+        assert_eq!(error_of("S 4 7 2 ) ="), CalcError::Math);
+        // A singular matrix has no inverse.
+        let mut calc = run("mode 5 1 5 1 = 2 = 2 = 4 = ac S 4 3 recip =");
+        assert_eq!(calc.error(), Some(CalcError::Math));
+        keys(&mut calc, "ac");
+        // Matrices can't be stored in number variables.
+        keys(&mut calc, "S 4 3 = S rcl neg");
+        assert_eq!(calc.memory().get(Var::A), &Number::zero());
+    }
+
+    #[test]
+    fn matrices_only_in_matrix_mode() {
+        assert!(run("S 4").menu().is_none());
+        // In COMP, SHIFT 4 does nothing, so this just types 1.
+        assert_eq!(result("S 4 1 ="), "1");
+        let calc = Calculator::restore(ron::from_str(&ron::to_string(&matrix_session().snapshot()).unwrap()).unwrap());
+        assert_eq!(calc.mode(), CalcMode::Matrix);
+        assert!(calc.menu().is_none(), "restored MATRIX mode starts on the calculation screen");
+        assert_eq!(calc.matrices().get(MatId::B).unwrap(), &Matrix::identity(2).unwrap());
     }
 
     #[test]

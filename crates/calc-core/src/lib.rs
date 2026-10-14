@@ -7,6 +7,7 @@ pub mod eval;
 pub mod format;
 pub mod input;
 pub mod key;
+pub mod matrix;
 pub mod menu;
 pub mod number;
 pub mod parse;
