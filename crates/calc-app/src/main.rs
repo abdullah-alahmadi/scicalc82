@@ -2,6 +2,7 @@
 
 mod app;
 mod icon;
+mod icon_pixels;
 mod keymap;
 mod keypad;
 mod lcd;

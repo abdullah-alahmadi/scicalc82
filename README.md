@@ -32,6 +32,8 @@ cargo run --release -p calc-app
 
 The optimized executable is written to `target/release/calc-app.exe`.
 
+On Windows, the build also embeds the app icon in the exe, so Explorer and shortcuts show it. It's generated from the same drawing code as the window icon (`crates/calc-app/src/icon_pixels.rs`). Embedding needs the resource compiler from the Windows SDK. If that's missing, the build still succeeds and prints a warning, and the exe simply has no icon.
+
 ## Using it
 
 Click the keys, or use the PC keyboard. Hovering over the model name in the app shows this list too.
