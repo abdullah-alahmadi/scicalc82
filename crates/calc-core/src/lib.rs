@@ -7,8 +7,11 @@ pub mod eval;
 pub mod format;
 pub mod input;
 pub mod key;
+pub mod menu;
 pub mod parse;
 pub mod state;
+pub mod stats;
+pub mod table;
 pub mod value;
 
 pub use calculator::Calculator;

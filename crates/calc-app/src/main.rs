@@ -6,6 +6,8 @@ mod keypad;
 mod lcd;
 mod math;
 mod rich;
+#[cfg(test)]
+mod screens;
 mod theme;
 
 use std::time::{SystemTime, UNIX_EPOCH};

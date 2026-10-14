@@ -2,14 +2,16 @@
 //!
 //! From tightest to loosest binding:
 //! 1. numbers, constants, `( )`, functions with parentheses, templates
-//! 2. postfix: `² ³ ⁻¹ ! % ° ʳ ᵍ` and `x^■`
-//! 3. prefix signs: `(−)`, and `−`/`+` where an operand is expected
-//! 4. multiplication with the sign omitted (`2π`, `3sin(30)`, `2(1+1)`)
-//! 5. nPr, nCr
-//! 6. ×, ÷
-//! 7. +, −
+//! 2. postfix: `² ³ ⁻¹ ! % ° ʳ ᵍ`, `x^■`, and LineIO `^(` and `ˣ√(`
+//! 3. LineIO fractions: `a⌟b`, `a⌟b⌟c`
+//! 4. prefix signs: `(−)`, and `−`/`+` where an operand is expected
+//! 5. regression estimates `x̂`, `ŷ`
+//! 6. multiplication with the sign omitted (`2π`, `3sin(30)`, `2(1+1)`)
+//! 7. nPr, nCr
+//! 8. ×, ÷
+//! 9. +, −
 //!
-//! Because 4 binds tighter than 6, `1÷2π` means `1÷(2π)`, as on school
+//! Because 6 binds tighter than 8, `1÷2π` means `1÷(2π)`, as on school
 //! calculators. Missing closing parentheses are added at the end of a row.
 
 use crate::ast::{BinaryOp, Expr, ExprKind, LocatedError, UnaryOp};
@@ -142,6 +144,7 @@ impl<'a> Parser<'a> {
                     | Token::Ans
                     | Token::Ran
                     | Token::Var(_)
+                    | Token::Stat(_)
             ),
             Some(Item::Template(t)) => t.kind != TemplateKind::Power,
             None => false,
@@ -149,13 +152,28 @@ impl<'a> Parser<'a> {
     }
 
     fn implicit(&mut self) -> PResult<Expr> {
-        let mut lhs = self.signed()?;
+        let mut lhs = self.estimated()?;
         while self.starts_operand() {
             let at = self.here();
-            let rhs = self.postfix()?;
+            let rhs = self.estimated()?;
             lhs = self.node(ExprKind::Binary(BinaryOp::Mul, Box::new(lhs), Box::new(rhs)), at);
         }
         Ok(lhs)
+    }
+
+    /// `x̂` and `ŷ` bind looser than signs: `−2ŷ` is the estimate for −2.
+    fn estimated(&mut self) -> PResult<Expr> {
+        let mut expr = self.signed()?;
+        loop {
+            let op = match self.peek_token() {
+                Some(Token::EstX) => UnaryOp::EstimateX,
+                Some(Token::EstY) => UnaryOp::EstimateY,
+                _ => return Ok(expr),
+            };
+            let at = self.here();
+            self.pos += 1;
+            expr = self.node(ExprKind::Unary(op, Box::new(expr)), at);
+        }
     }
 
     fn signed(&mut self) -> PResult<Expr> {
@@ -170,8 +188,26 @@ impl<'a> Parser<'a> {
                 self.pos += 1;
                 self.signed()
             }
-            _ => self.postfix(),
+            _ => self.fraction(),
         }
+    }
+
+    /// LineIO fractions: `a⌟b` is a/b and `a⌟b⌟c` is a + b/c.
+    fn fraction(&mut self) -> PResult<Expr> {
+        let first = self.postfix()?;
+        if self.peek_token() != Some(Token::FracBar) {
+            return Ok(first);
+        }
+        let at = self.here();
+        self.pos += 1;
+        let second = self.postfix()?;
+        if self.peek_token() != Some(Token::FracBar) {
+            return Ok(self.node(ExprKind::Binary(BinaryOp::Div, Box::new(first), Box::new(second)), at));
+        }
+        self.pos += 1;
+        let third = self.postfix()?;
+        let part = self.node(ExprKind::Binary(BinaryOp::Div, Box::new(second), Box::new(third)), at.clone());
+        Ok(self.node(ExprKind::Binary(BinaryOp::Add, Box::new(first), Box::new(part)), at))
     }
 
     fn postfix(&mut self) -> PResult<Expr> {
@@ -183,6 +219,17 @@ impl<'a> Parser<'a> {
                     let exponent = self.slot(t, 0)?;
                     self.pos += 1;
                     expr = self.node(ExprKind::Binary(BinaryOp::Pow, Box::new(expr), Box::new(exponent)), at);
+                    continue;
+                }
+                Some(Item::Token(t @ (Token::PowOpen | Token::RootOpen))) => {
+                    // LineIO `x^(n)` and `n ˣ√(x)`: the parenthesized part follows.
+                    let op = if *t == Token::PowOpen { BinaryOp::Pow } else { BinaryOp::Root };
+                    self.pos += 1;
+                    self.nest()?;
+                    let operand = self.additive()?;
+                    self.close_paren()?;
+                    self.depth -= 1;
+                    expr = self.node(ExprKind::Binary(op, Box::new(expr), Box::new(operand)), at);
                     continue;
                 }
                 Some(Item::Token(t)) => match t {
@@ -228,6 +275,7 @@ impl<'a> Parser<'a> {
             Token::Ans => ExprKind::Ans,
             Token::Ran => ExprKind::Ran,
             Token::Var(v) => ExprKind::Var(v),
+            Token::Stat(v) => ExprKind::Stat(v),
             _ => return Err(self.error(CalcError::Syntax)),
         };
         self.pos += 1;

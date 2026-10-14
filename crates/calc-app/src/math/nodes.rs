@@ -3,6 +3,7 @@
 use calc_core::calculator::ResultLine;
 use calc_core::format::{Formatted, SurdTermText};
 use calc_core::input::{Cursor, Func, Item, Row, SlotRef, Template, TemplateKind, Token};
+use calc_core::stats::StatVar;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Node {
@@ -17,6 +18,13 @@ pub enum Node {
         radicand: Vec<Node>,
     },
     Abs(Vec<Node>),
+    /// A letter with a bar (x̄) or hat (x̂) over it.
+    Accent {
+        text: String,
+        hat: bool,
+    },
+    /// The LineIO fraction mark ⌟, drawn since no bundled font has it.
+    FracMark,
     /// An empty slot, drawn as a small box.
     Empty,
     /// Where the input cursor is.
@@ -112,6 +120,40 @@ fn token_text(t: Token) -> Node {
     }
 }
 
+/// Plain text such as a menu label, with accented letters (x̄, ȳ, x̂, ŷ)
+/// turned into drawn accents, since egui doesn't place combining marks.
+pub fn label_nodes(label: &str) -> Vec<Node> {
+    const MACRON: char = '\u{0304}';
+    const CIRCUMFLEX: char = '\u{0302}';
+    let mut out = Vec::new();
+    let mut plain = String::new();
+    let mut chars = label.chars().peekable();
+    while let Some(c) = chars.next() {
+        let accented = match c {
+            'ȳ' => Some(('y', false)),
+            'ŷ' => Some(('y', true)),
+            _ => chars.next_if(|&n| n == MACRON || n == CIRCUMFLEX).map(|mark| (c, mark == CIRCUMFLEX)),
+        };
+        match accented {
+            Some((base, hat)) => {
+                if !plain.is_empty() {
+                    out.push(Node::Text(std::mem::take(&mut plain)));
+                }
+                out.push(Node::Accent { text: base.to_string(), hat });
+            }
+            None => plain.push(c),
+        }
+    }
+    if !plain.is_empty() {
+        out.push(Node::Text(plain));
+    }
+    out
+}
+
+fn accent(s: &str, hat: bool) -> Node {
+    Node::Accent { text: s.into(), hat }
+}
+
 fn sup(s: &str) -> Node {
     Node::Sup(vec![text(s)])
 }
@@ -123,6 +165,12 @@ fn token_nodes(t: Token) -> Vec<Node> {
         Token::Recip => vec![sup("−1")],
         Token::AngleRad => vec![sup("r")],
         Token::AngleGrad => vec![sup("g")],
+        Token::FracBar => vec![Node::FracMark],
+        Token::RootOpen => vec![sup("x"), text("√(")],
+        Token::Stat(StatVar::MeanX) => vec![accent("x", false)],
+        Token::Stat(StatVar::MeanY) => vec![accent("y", false)],
+        Token::EstX => vec![accent("x", true)],
+        Token::EstY => vec![accent("y", true)],
         Token::Func(f @ (Func::Asin | Func::Acos | Func::Atan | Func::Asinh | Func::Acosh | Func::Atanh)) => {
             let base = f.name().trim_end_matches('(').trim_end_matches("⁻¹");
             vec![text(base), sup("−1"), text("(")]
@@ -176,7 +224,8 @@ fn template_nodes<'a>(out: &mut Vec<Node>, t: &Template, cursor_in: impl Fn(usiz
 }
 
 /// A result line as a display tree: stacked fractions, radicals and ×10ⁿ.
-pub fn result_nodes(lines: &[ResultLine]) -> Vec<Node> {
+/// In LineIO (`natural` false) fractions are written `a⌟b`.
+pub fn result_nodes(lines: &[ResultLine], natural: bool) -> Vec<Node> {
     let mut out = Vec::new();
     for (i, line) in lines.iter().enumerate() {
         if i > 0 {
@@ -185,7 +234,7 @@ pub fn result_nodes(lines: &[ResultLine]) -> Vec<Node> {
         if let Some(label) = line.label {
             out.push(text(format!("{label}=")));
         }
-        out.extend(formatted_nodes(&line.value));
+        out.extend(formatted_nodes(&line.value, natural));
     }
     out
 }
@@ -194,7 +243,7 @@ fn over(num: Vec<Node>, den: u128) -> Vec<Node> {
     if den == 1 { num } else { vec![Node::Frac(num, vec![text(den.to_string())])] }
 }
 
-pub fn formatted_nodes(f: &Formatted) -> Vec<Node> {
+pub fn formatted_nodes(f: &Formatted, natural: bool) -> Vec<Node> {
     let mut out = Vec::new();
     match f {
         Formatted::Decimal(d) => {
@@ -208,6 +257,13 @@ pub fn formatted_nodes(f: &Formatted) -> Vec<Node> {
         Formatted::Fraction(fr) => {
             if fr.negative {
                 out.push(text("−"));
+            }
+            if !natural {
+                if let Some(w) = fr.whole {
+                    out.extend([text(w.to_string()), Node::FracMark]);
+                }
+                out.extend([text(fr.num.to_string()), Node::FracMark, text(fr.den.to_string())]);
+                return out;
             }
             if let Some(w) = fr.whole {
                 out.push(text(w.to_string()));
@@ -238,6 +294,7 @@ pub fn formatted_nodes(f: &Formatted) -> Vec<Node> {
             num.push(text("π"));
             out.extend(over(num, p.den));
         }
+        Formatted::Dms(d) => out.push(text(d.to_string())),
     }
     out
 }
@@ -303,7 +360,8 @@ mod tests {
 
     #[test]
     fn results_are_stacked() {
-        let show = |v: &Value| formatted_nodes(&format_value(v, &FormatSettings::default(), ResultForm::Standard));
+        let show =
+            |v: &Value| formatted_nodes(&format_value(v, &FormatSettings::default(), ResultForm::Standard), true);
         let half_root2 = Value::integer(2).sqrt().unwrap().div(&Value::integer(2)).unwrap();
         let root2 = Node::Root { index: None, radicand: vec![t("2")] };
         assert_eq!(show(&half_root2), vec![Node::Frac(vec![root2], vec![t("2")])]);
@@ -313,12 +371,40 @@ mod tests {
     }
 
     #[test]
+    fn line_io_fractions_use_the_mark() {
+        let f = format_value(
+            &Value::rational(calc_core::value::Rational::new(-7, 3).unwrap()),
+            &FormatSettings::default(),
+            ResultForm::Standard,
+        );
+        assert_eq!(formatted_nodes(&f, false), vec![t("−"), t("7"), Node::FracMark, t("3")]);
+    }
+
+    #[test]
+    fn labels_with_accents() {
+        assert_eq!(label_nodes("2:x̄"), vec![t("2:"), accent("x", false)]);
+        assert_eq!(label_nodes("5:ȳ"), vec![t("5:"), accent("y", false)]);
+        assert_eq!(label_nodes("4:x̂"), vec![t("4:"), accent("x", true)]);
+        assert_eq!(label_nodes("1:COMP"), vec![t("1:COMP")]);
+    }
+
+    #[test]
+    fn stat_tokens() {
+        let mut ed = Editor::new();
+        for tok in [Token::Stat(StatVar::MeanX), Token::Digit(2), Token::EstY] {
+            ed.insert_token(tok);
+        }
+        let nodes = input_nodes(ed.root(), None);
+        assert_eq!(nodes, vec![accent("x", false), t("2"), accent("y", true)]);
+    }
+
+    #[test]
     fn pol_results_have_labels() {
         let mut calc = Calculator::new();
         for key in [Key::Shift, Key::Plus, Key::Digit(1), Key::Shift, Key::RParen, Key::Digit(1), Key::Equals] {
             calc.press(key);
         }
-        let nodes = result_nodes(&calc.result_lines().unwrap());
+        let nodes = result_nodes(&calc.result_lines().unwrap(), true);
         assert_eq!(nodes[0], t("r="));
         assert!(nodes.contains(&t("θ=")));
     }

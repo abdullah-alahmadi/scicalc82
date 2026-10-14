@@ -1,13 +1,16 @@
 //! The top-level state machine: key presses in, display state out.
 
 use crate::ast::LocatedError;
-use crate::error::CalcError;
+use crate::error::{CalcError, CalcResult};
 use crate::eval::{Env, Outcome, evaluate};
-use crate::format::{Formatted, ResultForm, format_eng, format_value};
-use crate::input::{Cursor, Editor, Item, Row, TemplateKind, Token, Var};
+use crate::format::{Formatted, ResultForm, format_dms, format_eng, format_value};
+use crate::input::{Cursor, Editor, Func, Item, Row, TemplateKind, Token, Var};
 use crate::key::{Action, Key, Modifier, action, hyperbolic, var_for_key};
+use crate::menu::{self, MenuAction, MenuId, MenuView};
 use crate::parse::parse;
-use crate::state::{Memory, Rng, Settings};
+use crate::state::{CalcMode, Memory, Rng, Settings};
+use crate::stats::StatData;
+use crate::table::{Table, TableRow, TableStage, x_values};
 use crate::value::Value;
 
 /// Calculations kept for ▲/▼ replay.
@@ -24,10 +27,6 @@ pub enum Pending {
     Sto,
     /// RCL: waiting for a variable key.
     Rcl,
-    /// DRG▸ menu: 1 °, 2 ʳ, 3 ᵍ
-    DrgMenu,
-    /// CLR menu: 1 Setup, 2 Memory, 3 All
-    ClrMenu,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -36,6 +35,14 @@ pub struct ResultView {
     pub form: ResultForm,
     /// Engineering-notation step, once ENG has been pressed.
     pub eng: Option<i32>,
+    /// Shown as degrees, minutes and seconds (the °′″ key).
+    pub dms: bool,
+}
+
+impl ResultView {
+    fn new(outcome: Outcome, form: ResultForm) -> Self {
+        Self { outcome, form, eng: None, dms: false }
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -44,6 +51,26 @@ pub enum Phase {
     Editing,
     Result(ResultView),
     Error(LocatedError),
+}
+
+/// Which screen keys and the display belong to. Menus open on top of these.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Screen {
+    /// Calculations: COMP mode, and STAT mode outside the data editor.
+    #[default]
+    Calc,
+    StatEditor,
+    Table,
+}
+
+/// The STAT editor's highlighted cell and the value being typed into it.
+#[derive(Clone, Debug, Default)]
+pub struct StatEditor {
+    pub row: usize,
+    pub column: usize,
+    pub input: Editor,
+    /// An error from the last entry, shown until the next key.
+    pub error: Option<CalcError>,
 }
 
 /// One formatted line of a result, e.g. `r=` and its value for Pol(.
@@ -71,6 +98,56 @@ pub struct Calculator {
     /// Which history entry ▲/▼ is showing.
     replay: Option<usize>,
     rng: Rng,
+    mode: CalcMode,
+    screen: Screen,
+    menu: Option<MenuId>,
+    stats: StatData,
+    stat_editor: StatEditor,
+    table: Table,
+}
+
+/// The tokens a template key types in LineIO, which has no templates.
+fn linear_tokens(kind: TemplateKind) -> &'static [Token] {
+    match kind {
+        TemplateKind::Fraction | TemplateKind::MixedFraction => &[Token::FracBar],
+        TemplateKind::Power => &[Token::PowOpen],
+        TemplateKind::Pow10 => &[Token::Digit(1), Token::Digit(0), Token::PowOpen],
+        TemplateKind::ExpE => &[Token::Euler, Token::PowOpen],
+        TemplateKind::Sqrt => &[Token::Func(Func::Sqrt)],
+        TemplateKind::CubeRoot => &[Token::Func(Func::Cbrt)],
+        TemplateKind::Root => &[Token::RootOpen],
+        TemplateKind::LogBase => &[Token::Func(Func::Log)],
+        TemplateKind::Abs => &[Token::Func(Func::Abs)],
+    }
+}
+
+/// Plain typing into an input line: the STAT editor's cells and the TABLE prompts.
+fn edit(editor: &mut Editor, action: Action, natural: bool) {
+    match action {
+        Action::Insert(token) => {
+            editor.insert_token(token);
+        }
+        Action::Template(kind) if natural => {
+            editor.insert_template(kind);
+        }
+        Action::Template(kind) => {
+            for &token in linear_tokens(kind) {
+                editor.insert_token(token);
+            }
+        }
+        Action::Left => editor.move_left(),
+        Action::Right => editor.move_right(),
+        Action::Up => {
+            editor.move_vertical(false);
+        }
+        Action::Down => {
+            editor.move_vertical(true);
+        }
+        Action::Del => {
+            editor.delete();
+        }
+        _ => {}
+    }
 }
 
 impl Calculator {
@@ -110,6 +187,36 @@ impl Calculator {
         &self.memory
     }
 
+    pub fn mode(&self) -> CalcMode {
+        self.mode
+    }
+
+    pub fn screen(&self) -> Screen {
+        self.screen
+    }
+
+    /// The open menu, if any.
+    pub fn menu(&self) -> Option<MenuView> {
+        self.menu.map(|id| menu::view(id, self.stats.kind))
+    }
+
+    pub fn stats(&self) -> &StatData {
+        &self.stats
+    }
+
+    pub fn stat_editor(&self) -> &StatEditor {
+        &self.stat_editor
+    }
+
+    pub fn table(&self) -> &Table {
+        &self.table
+    }
+
+    /// A value in the current display format, as STAT and TABLE cells show it.
+    pub fn format(&self, value: &Value) -> Formatted {
+        format_value(value, &self.settings.format, ResultForm::Standard)
+    }
+
     /// How many calculations ▲ can replay.
     pub fn history_len(&self) -> usize {
         self.history.len()
@@ -124,9 +231,10 @@ impl Calculator {
 
     pub fn result_lines(&self) -> Option<Vec<ResultLine>> {
         let Phase::Result(view) = &self.phase else { return None };
-        let show = |v: &Value| match view.eng {
-            Some(step) => Formatted::Decimal(format_eng(v.to_f64(), step)),
-            None => format_value(v, &self.settings.format, view.form),
+        let show = |v: &Value| match (view.eng, view.dms.then(|| format_dms(v.to_f64())).flatten()) {
+            (_, Some(dms)) => Formatted::Dms(dms),
+            (Some(step), None) => Formatted::Decimal(format_eng(v.to_f64(), step)),
+            (None, None) => format_value(v, &self.settings.format, view.form),
         };
         let line = |label, v| ResultLine { label, value: show(v) };
         Some(match &view.outcome {
@@ -153,16 +261,108 @@ impl Calculator {
     }
 
     pub fn press(&mut self, key: Key) {
+        if let Key::Shift | Key::Alpha = key {
+            let pressed = if key == Key::Shift { Modifier::Shift } else { Modifier::Alpha };
+            self.modifier = if self.modifier == pressed { Modifier::None } else { pressed };
+            return;
+        }
+        let modifier = std::mem::take(&mut self.modifier);
+        let action = action(key, modifier);
+
+        // These menus open from any screen, replacing any open menu.
+        match action {
+            Action::Mode => return self.open_menu(MenuId::Mode),
+            Action::Setup => return self.open_menu(MenuId::Setup),
+            Action::ClrMenu => return self.open_menu(MenuId::Clr),
+            Action::DrgMenu => return self.open_menu(MenuId::Drg),
+            _ => {}
+        }
+        if let Some(menu) = self.menu {
+            return self.menu_key(menu, key);
+        }
+        match self.screen {
+            Screen::Calc => self.calc_key(key, modifier, action),
+            Screen::StatEditor => self.stat_editor_key(action),
+            Screen::Table => self.table_key(action),
+        }
+    }
+
+    // ---- Menus ----
+
+    fn open_menu(&mut self, id: MenuId) {
+        self.menu = Some(id);
+        self.pending = Pending::None;
+    }
+
+    fn menu_key(&mut self, menu: MenuId, key: Key) {
         match key {
-            Key::Shift | Key::Alpha => {
-                let pressed = if key == Key::Shift { Modifier::Shift } else { Modifier::Alpha };
-                self.modifier = if self.modifier == pressed { Modifier::None } else { pressed };
-                return;
+            Key::Ac | Key::On => self.menu = None,
+            Key::Up | Key::Down => {
+                if let Some(next) = menu::page(menu, key == Key::Down) {
+                    self.menu = Some(next);
+                }
+            }
+            Key::Digit(d) => {
+                if let Some(choice) = menu::select(menu, d, self.stats.kind) {
+                    self.menu = None;
+                    self.menu_action(choice);
+                }
             }
             _ => {}
         }
-        let modifier = std::mem::take(&mut self.modifier);
+    }
 
+    fn menu_action(&mut self, choice: MenuAction) {
+        match choice {
+            MenuAction::Mode(mode) => self.set_mode(mode),
+            MenuAction::Open(id) => self.menu = Some(id),
+            MenuAction::StatType(kind) => {
+                self.stats = StatData::new(kind, self.settings.stat_freq);
+                self.stat_editor = StatEditor::default();
+                self.set_mode(CalcMode::Stat);
+            }
+            MenuAction::Natural(natural) => {
+                self.settings.format.natural = natural;
+                self.clear_entry();
+            }
+            MenuAction::Angle(unit) => self.settings.angle = unit,
+            MenuAction::Number(number) => self.settings.format.number = number,
+            MenuAction::Fraction(style) => self.settings.format.fraction = style,
+            MenuAction::StatFreq(on) => {
+                self.settings.stat_freq = on;
+                self.stats.freq = on;
+                self.stat_editor.column = self.stat_editor.column.min(self.stats.columns().len() - 1);
+            }
+            MenuAction::Insert(token) => match self.screen {
+                Screen::Calc => self.insert_token(token),
+                Screen::StatEditor => {
+                    self.stat_editor.input.insert_token(token);
+                }
+                Screen::Table => {
+                    self.editor.insert_token(token);
+                }
+            },
+            MenuAction::Clear(choice) => self.clear_memory(choice),
+            MenuAction::StatEditor => self.screen = Screen::StatEditor,
+        }
+    }
+
+    fn set_mode(&mut self, mode: CalcMode) {
+        self.mode = mode;
+        self.clear_entry();
+        self.screen = match mode {
+            CalcMode::Comp => Screen::Calc,
+            CalcMode::Stat => Screen::StatEditor,
+            CalcMode::Table => {
+                self.show_table_stage(TableStage::Function);
+                Screen::Table
+            }
+        };
+    }
+
+    // ---- Calculation screen ----
+
+    fn calc_key(&mut self, key: Key, modifier: Modifier, action: Action) {
         // On an error screen only AC and ←/→ (back to the error position) work.
         if let Phase::Error(err) = &self.phase {
             match key {
@@ -193,29 +393,20 @@ impl Calculator {
                     return self.recall(var);
                 }
             }
-            Pending::DrgMenu => {
-                let unit = match key {
-                    Key::Digit(1) => Some(Token::AngleDeg),
-                    Key::Digit(2) => Some(Token::AngleRad),
-                    Key::Digit(3) => Some(Token::AngleGrad),
-                    _ => None,
-                };
-                if let Some(token) = unit {
-                    return self.insert_token(token);
-                }
-            }
-            Pending::ClrMenu => {
-                if let Key::Digit(choice @ 1..=3) = key {
-                    return self.clear_memory(choice);
-                }
-            }
             Pending::None => {}
         }
-        self.perform(action(key, modifier));
+        self.perform(action);
     }
 
     fn perform(&mut self, action: Action) {
         match action {
+            // °′″ after a result switches it to degrees, minutes and seconds.
+            Action::Insert(Token::Dms) if matches!(self.phase, Phase::Result(_)) => {
+                if let Phase::Result(view) = &mut self.phase {
+                    view.dms = !view.dms;
+                    view.eng = None;
+                }
+            }
             Action::Insert(token) => self.insert_token(token),
             Action::Template(kind) => self.insert_template(kind),
             Action::Left => {
@@ -251,6 +442,7 @@ impl Calculator {
                         ResultForm::Decimal => ResultForm::Standard,
                     };
                     view.eng = None;
+                    view.dms = false;
                 }
             }
             Action::Eng(step) => {
@@ -260,16 +452,19 @@ impl Calculator {
                         None => step.min(0),
                         Some(s) => s + step,
                     });
+                    view.dms = false;
                 }
             }
             Action::MemoryAdd { subtract } => self.memory_add(subtract),
             Action::Sto => self.pending = Pending::Sto,
             Action::Rcl => self.pending = Pending::Rcl,
             Action::Hyp => self.pending = Pending::Hyp,
-            Action::DrgMenu => self.pending = Pending::DrgMenu,
-            Action::ClrMenu => self.pending = Pending::ClrMenu,
-            // MODE and SETUP menus arrive with the other modes.
-            Action::Mode | Action::Setup | Action::Nothing => {}
+            Action::StatMenu => {
+                if self.mode == CalcMode::Stat {
+                    self.open_menu(MenuId::Stat);
+                }
+            }
+            Action::Mode | Action::Setup | Action::DrgMenu | Action::ClrMenu | Action::Nothing => {}
         }
     }
 
@@ -315,12 +510,23 @@ impl Calculator {
                 | Token::AngleDeg
                 | Token::AngleRad
                 | Token::AngleGrad
+                | Token::FracBar
+                | Token::PowOpen
+                | Token::RootOpen
+                | Token::EstX
+                | Token::EstY
         );
         self.start_new_if_result(continues_ans);
         self.editor.insert_token(token);
     }
 
     fn insert_template(&mut self, kind: TemplateKind) {
+        if !self.settings.format.natural {
+            for &token in linear_tokens(kind) {
+                self.insert_token(token);
+            }
+            return;
+        }
         self.start_new_if_result(kind == TemplateKind::Power);
         self.editor.insert_template(kind);
     }
@@ -332,15 +538,20 @@ impl Calculator {
         self.replay = None;
     }
 
+    /// CLR: 1 resets the setup, 2 clears memory, 3 does both and returns to COMP.
     fn clear_memory(&mut self, choice: u8) {
         if choice != 2 {
             self.settings = Settings::default();
+            self.stats.freq = false;
         }
         if choice != 1 {
             self.memory = Memory::default();
         }
         if choice == 3 {
             self.history.clear();
+            self.stats = StatData::default();
+            self.table = Table::default();
+            self.set_mode(CalcMode::Comp);
         }
         self.clear_entry();
     }
@@ -366,8 +577,7 @@ impl Calculator {
         if let Some(i) = index {
             let entry = &self.history[i];
             self.editor = Editor::from_row(entry.row.clone());
-            self.phase =
-                Phase::Result(ResultView { outcome: entry.outcome.clone(), form: ResultForm::Standard, eng: None });
+            self.phase = Phase::Result(ResultView::new(entry.outcome.clone(), ResultForm::Standard));
             self.replay = Some(i);
         }
     }
@@ -379,7 +589,8 @@ impl Calculator {
             return None;
         }
         let row = self.editor.root().clone();
-        let mut env = Env { settings: &self.settings, memory: &self.memory, rng: &mut self.rng };
+        let stats = (self.mode == CalcMode::Stat).then_some(&self.stats);
+        let mut env = Env { settings: &self.settings, memory: &self.memory, rng: &mut self.rng, stats };
         match parse(&row).and_then(|expr| evaluate(&expr, &mut env)) {
             Ok(outcome) => {
                 self.memory.ans = outcome.primary().clone();
@@ -387,7 +598,7 @@ impl Calculator {
                     self.history.remove(0);
                 }
                 self.history.push(HistoryEntry { row, outcome: outcome.clone() });
-                self.phase = Phase::Result(ResultView { outcome: outcome.clone(), form, eng: None });
+                self.phase = Phase::Result(ResultView::new(outcome.clone(), form));
                 self.replay = None;
                 Some(outcome)
             }
@@ -417,8 +628,7 @@ impl Calculator {
     fn recall(&mut self, var: Var) {
         self.editor = Editor::from_row(Row::from(vec![Item::Token(Token::Var(var))]));
         let value = self.memory.get(var).clone();
-        self.phase =
-            Phase::Result(ResultView { outcome: Outcome::Single(value), form: ResultForm::Standard, eng: None });
+        self.phase = Phase::Result(ResultView::new(Outcome::Single(value), ResultForm::Standard));
         self.replay = None;
     }
 
@@ -431,6 +641,149 @@ impl Calculator {
             Err(error) => self.phase = Phase::Error(LocatedError { error, at: self.editor.cursor().clone() }),
         }
     }
+
+    /// Evaluates a standalone input: a STAT cell or a TABLE range value.
+    fn evaluate_input(&mut self, row: &Row) -> CalcResult<Value> {
+        let mut env = Env { settings: &self.settings, memory: &self.memory, rng: &mut self.rng, stats: None };
+        parse(row).and_then(|expr| evaluate(&expr, &mut env)).map(|o| o.primary().clone()).map_err(|e| e.error)
+    }
+
+    // ---- STAT editor ----
+
+    fn stat_editor_key(&mut self, action: Action) {
+        if self.stat_editor.error.take().is_some() {
+            return;
+        }
+        let natural = self.settings.format.natural;
+        let last_column = self.stats.columns().len() - 1;
+        let rows = self.stats.rows.len();
+        let typing = !self.stat_editor.input.is_empty();
+        let ed = &mut self.stat_editor;
+        match action {
+            Action::Equals => self.commit_stat_cell(),
+            Action::Ac if typing => ed.input.clear(),
+            Action::Ac => {
+                self.screen = Screen::Calc;
+                self.clear_entry();
+            }
+            // DEL on a cell deletes its row.
+            Action::Del if !typing => {
+                let row = ed.row;
+                self.stats.delete_row(row);
+                self.stat_editor.row = row.min(self.stats.rows.len());
+            }
+            Action::Up if !typing => ed.row = ed.row.saturating_sub(1),
+            Action::Down if !typing => ed.row = (ed.row + 1).min(rows),
+            Action::Left if !typing => ed.column = ed.column.saturating_sub(1),
+            Action::Right if !typing => ed.column = (ed.column + 1).min(last_column),
+            Action::StatMenu => self.open_menu(MenuId::Stat),
+            other => edit(&mut ed.input, other, natural),
+        }
+    }
+
+    /// Stores the typed value in the highlighted cell and moves down.
+    fn commit_stat_cell(&mut self) {
+        if self.stat_editor.input.is_empty() {
+            return;
+        }
+        let row = self.stat_editor.input.root().clone();
+        let column = self.stats.columns()[self.stat_editor.column];
+        let result = self.evaluate_input(&row).and_then(|v| self.stats.set(self.stat_editor.row, column, v));
+        match result {
+            Ok(()) => {
+                self.stat_editor.input.clear();
+                self.stat_editor.row = (self.stat_editor.row + 1).min(self.stats.rows.len());
+            }
+            Err(e) => self.stat_editor.error = Some(e),
+        }
+    }
+
+    // ---- TABLE ----
+
+    fn table_key(&mut self, action: Action) {
+        if self.table.error.take().is_some() {
+            return self.show_table_stage(TableStage::Function);
+        }
+        if self.table.stage == TableStage::View {
+            let t = &mut self.table;
+            match action {
+                Action::Up => t.selected = t.selected.saturating_sub(1),
+                Action::Down => t.selected = (t.selected + 1).min(t.rows.len().saturating_sub(1)),
+                Action::Left => t.column = 0,
+                Action::Right => t.column = 1,
+                Action::Ac => self.show_table_stage(TableStage::Function),
+                _ => {}
+            }
+            return;
+        }
+        match action {
+            Action::Equals => self.table_advance(),
+            Action::Ac if self.table.stage == TableStage::Function => self.editor.clear(),
+            Action::Ac => self.show_table_stage(TableStage::Function),
+            other => edit(&mut self.editor, other, self.settings.format.natural),
+        }
+    }
+
+    fn show_table_stage(&mut self, stage: TableStage) {
+        self.table.stage = stage;
+        self.editor =
+            if stage == TableStage::Function { Editor::from_row(self.table.function.clone()) } else { Editor::new() };
+        self.phase = Phase::Editing;
+    }
+
+    /// = at a TABLE prompt: keep the input (an empty range prompt keeps
+    /// its current value) and go to the next step.
+    fn table_advance(&mut self) {
+        let stage = self.table.stage;
+        if stage == TableStage::Function {
+            if !self.editor.is_empty() {
+                self.table.function = self.editor.root().clone();
+                self.show_table_stage(TableStage::Start);
+            }
+            return;
+        }
+        if !self.editor.is_empty() {
+            let row = self.editor.root().clone();
+            match self.evaluate_input(&row) {
+                Ok(v) => match stage {
+                    TableStage::Start => self.table.start = v,
+                    TableStage::End => self.table.end = v,
+                    _ => self.table.step = v,
+                },
+                Err(e) => {
+                    self.table.error = Some(e);
+                    return;
+                }
+            }
+        }
+        match stage {
+            TableStage::Start => self.show_table_stage(TableStage::End),
+            TableStage::End => self.show_table_stage(TableStage::Step),
+            _ => match self.build_table() {
+                Ok(rows) => {
+                    self.table.rows = rows;
+                    self.table.selected = 0;
+                    self.table.column = 0;
+                    self.table.stage = TableStage::View;
+                }
+                Err(e) => self.table.error = Some(e),
+            },
+        }
+    }
+
+    fn build_table(&mut self) -> CalcResult<Vec<TableRow>> {
+        let xs = x_values(&self.table.start, &self.table.end, &self.table.step)?;
+        let expr = parse(&self.table.function).map_err(|e| e.error)?;
+        let mut rows = Vec::with_capacity(xs.len());
+        for x in xs {
+            let mut memory = self.memory.clone();
+            memory.set(Var::X, x.clone());
+            let mut env = Env { settings: &self.settings, memory: &memory, rng: &mut self.rng, stats: None };
+            let fx = evaluate(&expr, &mut env).map(|o| o.primary().clone()).map_err(|e| e.error);
+            rows.push(TableRow { x, fx });
+        }
+        Ok(rows)
+    }
 }
 
 #[cfg(test)]
@@ -438,6 +791,7 @@ mod tests {
     use super::*;
     use crate::format::{FractionStyle, NumberFormat};
     use crate::state::AngleUnit;
+    use crate::table::TableStage;
 
     /// Presses keys described by space-separated words; runs of digits are
     /// typed one by one, and `S`/`A` are SHIFT/ALPHA.
@@ -486,6 +840,7 @@ mod tests {
                 "right" => Key::Right,
                 "up" => Key::Up,
                 "down" => Key::Down,
+                "mode" => Key::Mode,
                 _ => panic!("unknown key word {word:?}"),
             };
             calc.press(key);
@@ -688,5 +1043,152 @@ mod tests {
         calc.settings_mut().format.number = NumberFormat::Fix(2);
         keys(&mut calc, "S 0 1 / 3 ) * 3 =");
         assert_eq!(calc.result_text().unwrap(), "0.99");
+    }
+
+    #[test]
+    fn setup_menu() {
+        let mut calc = run("S mode 4");
+        assert_eq!(calc.settings().angle, AngleUnit::Rad);
+        assert!(calc.menu().is_none());
+        keys(&mut calc, "S mode 6");
+        assert_eq!(calc.menu().unwrap().prompt, Some("Fix 0~9?"));
+        keys(&mut calc, "3 1 / 3 =");
+        assert_eq!(calc.result_text().unwrap(), "1/3");
+        keys(&mut calc, "sd");
+        assert_eq!(calc.result_text().unwrap(), "0.333");
+        keys(&mut calc, "S mode down 1");
+        assert_eq!(calc.settings().format.fraction, FractionStyle::Mixed);
+        // AC closes a menu without choosing.
+        keys(&mut calc, "mode ac");
+        assert!(calc.menu().is_none());
+        assert_eq!(calc.mode(), CalcMode::Comp);
+    }
+
+    #[test]
+    fn line_io() {
+        let mut calc = run("S mode 2");
+        assert!(!calc.settings().format.natural);
+        keys(&mut calc, "1 frac 2 + 1 frac 3 =");
+        assert_eq!(calc.editor().root().to_string(), "1⌟2+1⌟3");
+        assert_eq!(calc.result_text().unwrap(), "5/6");
+        let line = |script: &str| result(&format!("S mode 2 {script}"));
+        assert_eq!(line("sqrt 2 ) ="), "1.414213562");
+        assert_eq!(line("2 pow 10 ) ="), "1024");
+        assert_eq!(line("3 S pow 8 ) ="), "2");
+        assert_eq!(line("1 frac 1 frac 2 ="), "3/2");
+        assert_eq!(line("neg 1 frac 2 ="), "-1/2");
+        assert_eq!(line("S exp ="), "3.141592654");
+        assert_eq!(line("S log 3 ="), "1000");
+    }
+
+    #[test]
+    fn degrees_minutes_seconds_display() {
+        let mut calc = run("2 . 258 =");
+        keys(&mut calc, "dms");
+        assert_eq!(calc.result_text().unwrap(), "2°15′28.8″");
+        keys(&mut calc, "dms");
+        assert_eq!(calc.result_text().unwrap(), "1129/500");
+    }
+
+    fn stat_session(kind: &str) -> Calculator {
+        run(&format!("mode 2 {kind}"))
+    }
+
+    #[test]
+    fn single_variable_statistics() {
+        let mut calc = stat_session("1");
+        assert_eq!(calc.screen(), Screen::StatEditor);
+        keys(&mut calc, "1 = 2 = 3 = 4 =");
+        assert_eq!(calc.stats().rows.len(), 4);
+        assert_eq!(calc.stat_editor().row, 4);
+        keys(&mut calc, "ac");
+        assert_eq!(calc.screen(), Screen::Calc);
+        keys(&mut calc, "S 1 4 2 =");
+        assert_eq!(calc.result_text().unwrap(), "5/2");
+        keys(&mut calc, "S 1 4 1 =");
+        assert_eq!(calc.result_text().unwrap(), "4");
+        keys(&mut calc, "S 1 3 1 =");
+        assert_eq!(calc.result_text().unwrap(), "30");
+        keys(&mut calc, "S 1 5 2 =");
+        assert_eq!(calc.result_text().unwrap(), "4");
+        // Back to the editor; DEL removes the highlighted row.
+        keys(&mut calc, "S 1 2 up del");
+        assert_eq!(calc.stats().rows.len(), 3);
+        keys(&mut calc, "ac S 1 4 2 =");
+        assert_eq!(calc.result_text().unwrap(), "2");
+    }
+
+    #[test]
+    fn frequencies() {
+        let mut calc = run("S mode down 3 1 mode 2 1");
+        assert_eq!(calc.stats().columns().len(), 2);
+        keys(&mut calc, "1 = 5 = up right 3 =");
+        keys(&mut calc, "ac S 1 4 2 =");
+        assert_eq!(calc.result_text().unwrap(), "4");
+    }
+
+    #[test]
+    fn linear_regression() {
+        let mut calc = stat_session("2");
+        keys(&mut calc, "1 = 2 = 3 = 4 = up up up up right 3 = 5 = 7 = 9 = ac");
+        let text = |calc: &mut Calculator, script: &str| {
+            keys(calc, script);
+            calc.result_text().unwrap()
+        };
+        assert_eq!(text(&mut calc, "S 1 5 1 ="), "1");
+        assert_eq!(text(&mut calc, "S 1 5 2 ="), "2");
+        assert_eq!(text(&mut calc, "S 1 5 3 ="), "1");
+        assert_eq!(text(&mut calc, "10 S 1 5 5 ="), "21");
+        assert_eq!(text(&mut calc, "21 S 1 5 4 ="), "10");
+        assert_eq!(text(&mut calc, "S 1 3 5 ="), "70");
+    }
+
+    #[test]
+    fn stat_entry_errors() {
+        let mut calc = stat_session("1");
+        keys(&mut calc, "1 / 0 =");
+        assert_eq!(calc.stat_editor().error, Some(CalcError::Math));
+        keys(&mut calc, "ac");
+        assert_eq!(calc.stat_editor().error, None);
+        assert!(calc.stats().rows.is_empty());
+    }
+
+    #[test]
+    fn table_mode() {
+        let mut calc = run("mode 3");
+        assert_eq!(calc.screen(), Screen::Table);
+        assert_eq!(calc.table().stage, TableStage::Function);
+        // f(X) = X² + 1 from 1 to 3.
+        keys(&mut calc, "A ) sq + 1 = 1 = 3 = =");
+        let table = calc.table();
+        assert_eq!(table.stage, TableStage::View);
+        let fx: Vec<_> = table.rows.iter().map(|r| r.fx.clone().unwrap()).collect();
+        assert_eq!(fx, vec![Value::integer(2), Value::integer(5), Value::integer(10)]);
+        keys(&mut calc, "down down down");
+        assert_eq!(calc.table().selected, 2);
+        // AC returns to f(X) with the function kept; = = = = reuses the range.
+        keys(&mut calc, "ac");
+        assert_eq!(calc.editor().root().to_string(), "X²+1");
+        keys(&mut calc, "= = = =");
+        assert_eq!(calc.table().rows.len(), 3);
+    }
+
+    #[test]
+    fn table_errors() {
+        let mut calc = run("mode 3 A ) = 1 = 100 = =");
+        assert_eq!(calc.table().error, Some(CalcError::Memory));
+        keys(&mut calc, "ac");
+        assert_eq!(calc.table().stage, TableStage::Function);
+        // Rows that fail show their error without stopping the table.
+        let calc = run("mode 3 1 / A ) = neg 1 = 1 = =");
+        let errors: Vec<_> = calc.table().rows.iter().map(|r| r.fx.is_err()).collect();
+        assert_eq!(errors, vec![false, true, false]);
+    }
+
+    #[test]
+    fn clear_all_resets_mode() {
+        let calc = run("S mode 2 mode 3 S 9 3");
+        assert_eq!(calc.mode(), CalcMode::Comp);
+        assert!(calc.settings().format.natural);
     }
 }

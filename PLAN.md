@@ -41,7 +41,10 @@ Calculator/
 │  │  │  ├─ decimal.rs        # f64 + calculator-style 15-digit rounding, 1e±99 range
 │  │  │  └─ intmath.rs        # gcd, squarefree split, exact integer roots
 │  │  ├─ eval/                # evaluator, functions, exact trig table
-│  │  ├─ format.rs            # Norm1/Norm2/Fix/Sci/Eng, 10-digit display, a b/c vs d/c
+│  │  ├─ format.rs            # Norm1/Norm2/Fix/Sci/Eng, 10-digit display, a b/c vs d/c, °′″
+│  │  ├─ menu.rs              # MODE, SETUP, DRG, CLR and STAT menus as data
+│  │  ├─ stats.rs             # STAT data, 1-VAR and A+BX statistics
+│  │  ├─ table.rs             # TABLE mode range and rows
 │  │  └─ state.rs             # Ans, M, A–F/X/Y, settings, history
 │  └─ calc-app/               # eframe binary
 │     ├─ main.rs
@@ -91,7 +94,7 @@ Stretch goals for later: CALC/SOLVE, a WASM web build, alternate skins, an advan
 | 3 ✅ | **Parser + evaluator:** precedence, functions, angle modes, exact trig, Ans, memory | Keystroke-sequence tests produce the expected device results |
 | 4 ✅ | **UI shell:** calculator body, keypad, SHIFT/ALPHA, keyboard map, LCD with a linear preview | A usable calculator, drawn linearly |
 | 5 ✅ | **Natural display renderer:** box layout, fraction bars, radicals, superscripts, cursor, scrolling | Display looks like MathIO |
-| 6 | **SETUP, STAT, TABLE modes**, history replay, error screens | Feature checklist complete |
+| 6 ✅ | **SETUP, STAT, TABLE modes**, history replay, error screens | Feature checklist complete |
 | 7 | Polish: persistence, scaling/HiDPI, app icon, release build (optional WASM) | v1.0 |
 
 Milestones 1–3 are the riskiest and most valuable part. Building them as pure, well-tested library code first means the UI work afterwards is mostly drawing.
@@ -101,6 +104,7 @@ Milestones 1–3 are the riskiest and most valuable part. Building them as pure,
 - **Golden keystroke tests:** a table of `(keys, expected display)` cases checked against a real school scientific calculator, or its manual's examples.
 - **Property tests:** exact and decimal paths agree within 1e-12. Formatting round-trips correctly.
 - **Snapshot tests:** layout box trees for natural display expressions (`insta`).
+- **Offscreen UI renders:** `cargo test -p calc-app render_screens -- --ignored` writes PNGs of key screens to `target/screens/` (egui_kittest, no window or desktop needed).
 - **Manual UI checks** against reference photos of the device.
 
 ## UI decisions (milestone 4)

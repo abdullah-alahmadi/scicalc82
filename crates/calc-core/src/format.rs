@@ -42,10 +42,18 @@ pub enum FractionStyle {
     Mixed,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FormatSettings {
     pub number: NumberFormat,
     pub fraction: FractionStyle,
+    /// MathIO (true) or LineIO (false). LineIO shows √ and π results as decimals.
+    pub natural: bool,
+}
+
+impl Default for FormatSettings {
+    fn default() -> Self {
+        Self { number: NumberFormat::default(), fraction: FractionStyle::default(), natural: true }
+    }
 }
 
 /// Which side of the S⇔D toggle to show.
@@ -63,6 +71,37 @@ pub enum Formatted {
     Fraction(FractionText),
     Surd(SurdText),
     Pi(PiText),
+    Dms(DmsText),
+}
+
+/// Degrees, minutes and seconds: `±d°m′s″`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DmsText {
+    pub negative: bool,
+    pub degrees: u64,
+    pub minutes: u8,
+    /// Seconds with up to two decimals, e.g. `28.8`.
+    pub seconds: String,
+}
+
+/// Largest magnitude shown in degrees-minutes-seconds form.
+const DMS_LIMIT: f64 = 1e7;
+
+/// `x` in degrees as d°m′s″, with seconds rounded to hundredths. None if
+/// the value is too large for the form.
+pub fn format_dms(x: f64) -> Option<DmsText> {
+    if !x.is_finite() || x.abs() >= DMS_LIMIT {
+        return None;
+    }
+    let hundredths = (x.abs() * 360_000.0).round() as u64;
+    let (degrees, rest) = (hundredths / 360_000, hundredths % 360_000);
+    let (minutes, seconds) = ((rest / 6000) as u8, rest % 6000);
+    let seconds = if seconds % 100 == 0 {
+        (seconds / 100).to_string()
+    } else {
+        format!("{}.{:02}", seconds / 100, seconds % 100).trim_end_matches('0').to_owned()
+    };
+    Some(DmsText { negative: x < 0.0 && hundredths != 0, degrees, minutes, seconds })
 }
 
 /// `±mantissa × 10^exponent`; the exponent is absent in positional notation.
@@ -111,9 +150,11 @@ pub fn format_value(value: &Value, settings: &FormatSettings, form: ResultForm) 
             // Integers go through decimal formatting so Fix/Sci apply to them.
             Some(r) if r.is_integer() => None,
             Some(r) => fraction_form(r, settings.fraction).map(Formatted::Fraction),
-            None => surd_form(s).map(Formatted::Surd),
+            None if settings.natural => surd_form(s).map(Formatted::Surd),
+            None => None,
         },
-        (_, Value::Pi(q)) => pi_form(*q).map(Formatted::Pi),
+        (_, Value::Pi(q)) if settings.natural => pi_form(*q).map(Formatted::Pi),
+        (_, Value::Pi(_)) => None,
     };
     exact.unwrap_or_else(|| Formatted::Decimal(format_decimal(value.to_f64(), settings.number)))
 }
@@ -260,7 +301,15 @@ impl fmt::Display for Formatted {
             Self::Fraction(fr) => fr.fmt(f),
             Self::Surd(s) => s.fmt(f),
             Self::Pi(p) => p.fmt(f),
+            Self::Dms(d) => d.fmt(f),
         }
+    }
+}
+
+impl fmt::Display for DmsText {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let sign = if self.negative { "-" } else { "" };
+        write!(f, "{sign}{}°{}′{}″", self.degrees, self.minutes, self.seconds)
     }
 }
 
@@ -334,7 +383,7 @@ mod tests {
     use proptest::prelude::*;
 
     fn with(number: NumberFormat, fraction: FractionStyle) -> FormatSettings {
-        FormatSettings { number, fraction }
+        FormatSettings { number, fraction, natural: true }
     }
 
     fn show(v: &Value) -> String {
@@ -421,6 +470,26 @@ mod tests {
         assert_eq!(show(&Value::pi()), "π");
         assert_eq!(show(&Value::pi().mul(&frac(-3, 4)).unwrap()), "-3π/4");
         assert_eq!(show(&Value::pi().mul(&int(2)).unwrap()), "2π");
+    }
+
+    #[test]
+    fn degrees_minutes_seconds() {
+        let show = |x: f64| format_dms(x).unwrap().to_string();
+        assert_eq!(show(1.5), "1°30′0″");
+        assert_eq!(show(2.258), "2°15′28.8″");
+        assert_eq!(show(-0.1), "-0°6′0″");
+        assert_eq!(show(1.0 / 3.0), "0°20′0″");
+        assert_eq!(show(10.999999999), "11°0′0″");
+        assert_eq!(format_dms(1e7), None);
+    }
+
+    #[test]
+    fn line_io_has_no_surd_or_pi_forms() {
+        let line = FormatSettings { natural: false, ..FormatSettings::default() };
+        let root2 = Value::integer(2).sqrt().unwrap();
+        assert_eq!(format_value(&root2, &line, ResultForm::Standard).to_string(), "1.414213562");
+        assert_eq!(format_value(&Value::pi(), &line, ResultForm::Standard).to_string(), "3.141592654");
+        assert_eq!(format_value(&frac(3, 4), &line, ResultForm::Standard).to_string(), "3/4");
     }
 
     #[test]

@@ -115,7 +115,7 @@ const LOWER: [[Option<KeySpec>; 5]; 4] = [
         num(Key::Divide, "÷", Some("nCr"), None),
     ],
     [
-        num(Key::Digit(1), "1", None, None),
+        num(Key::Digit(1), "1", Some("STAT"), None),
         num(Key::Digit(2), "2", None, None),
         num(Key::Digit(3), "3", None, None),
         num(Key::Plus, "+", Some("Pol"), None),

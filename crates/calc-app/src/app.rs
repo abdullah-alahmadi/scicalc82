@@ -21,11 +21,7 @@ pub struct CalcApp {
 
 impl CalcApp {
     pub fn new(cc: &eframe::CreationContext<'_>, seed: u64) -> Self {
-        // The proportional font lacks symbols such as ⁻ ∛ □; fall back to Hack.
-        let mut fonts = FontDefinitions::default();
-        fonts.families.entry(FontFamily::Proportional).or_default().push("Hack".to_owned());
-        cc.egui_ctx.set_fonts(fonts);
-
+        install_fonts(&cc.egui_ctx);
         let mut calc = Calculator::new();
         calc.reseed(seed);
         Self { calc, flash: None }
@@ -86,6 +82,23 @@ fn draw_body(ui: &egui::Ui, view: View) {
     }
 }
 
+/// The proportional font lacks symbols such as ⁻ ∛ □; fall back to Hack.
+pub fn install_fonts(ctx: &egui::Context) {
+    let mut fonts = FontDefinitions::default();
+    fonts.families.entry(FontFamily::Proportional).or_default().push("Hack".to_owned());
+    ctx.set_fonts(fonts);
+}
+
+/// Draws the whole calculator into `ui` and returns the keys clicked.
+pub fn draw_calculator(ui: &egui::Ui, calc: &Calculator, flash: Option<Key>, cursor_visible: bool) -> Vec<Key> {
+    let area = ui.max_rect();
+    ui.painter().rect_filled(area, 0.0, theme::BACKDROP);
+    let view = View::fit(area.shrink(10.0));
+    draw_body(ui, view);
+    lcd::draw(ui.painter(), view, calc, cursor_visible);
+    keypad::draw(ui, view, calc, flash)
+}
+
 impl eframe::App for CalcApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
@@ -95,13 +108,8 @@ impl eframe::App for CalcApp {
             self.flash = None;
         }
 
-        let area = ui.max_rect();
-        ui.painter().rect_filled(area, 0.0, theme::BACKDROP);
-        let view = View::fit(area.shrink(10.0));
-        draw_body(ui, view);
         let cursor_visible = (now / BLINK_SECONDS) as i64 % 2 == 0;
-        lcd::draw(ui.painter(), view, &self.calc, cursor_visible);
-        for key in keypad::draw(ui, view, &self.calc, self.flash.map(|(k, _)| k)) {
+        for key in draw_calculator(ui, &self.calc, self.flash.map(|(k, _)| k), cursor_visible) {
             self.calc.press(key);
         }
 

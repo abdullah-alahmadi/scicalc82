@@ -2,6 +2,7 @@
 
 use crate::error::CalcError;
 use crate::input::{Cursor, Func, Var};
+use crate::stats::StatVar;
 use crate::value::Value;
 
 /// An error and the input position the device's cursor jumps to.
@@ -26,6 +27,7 @@ pub enum ExprKind {
     Var(Var),
     Ans,
     Ran,
+    Stat(StatVar),
     Unary(UnaryOp, Box<Expr>),
     Binary(BinaryOp, Box<Expr>, Box<Expr>),
     Call(Func, Vec<Expr>),
@@ -47,6 +49,10 @@ pub enum UnaryOp {
     Cbrt,
     Abs,
     Exp,
+    /// x̂: the x estimated from a y value.
+    EstimateX,
+    /// ŷ: the y estimated from an x value.
+    EstimateY,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

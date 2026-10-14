@@ -7,6 +7,8 @@
 
 use std::fmt;
 
+use crate::stats::StatVar;
+
 /// Functions that are entered as a name plus an opening parenthesis.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Func {
@@ -28,6 +30,10 @@ pub enum Func {
     Rec,
     RanInt,
     Rnd,
+    /// LineIO forms of the √, ∛ and Abs templates.
+    Sqrt,
+    Cbrt,
+    Abs,
 }
 
 impl Func {
@@ -51,6 +57,9 @@ impl Func {
             Self::Rec => "Rec(",
             Self::RanInt => "RanInt#(",
             Self::Rnd => "Rnd(",
+            Self::Sqrt => "√(",
+            Self::Cbrt => "∛(",
+            Self::Abs => "Abs(",
         }
     }
 }
@@ -121,6 +130,17 @@ pub enum Token {
     Ans,
     Ran,
     Var(Var),
+    /// LineIO fraction separator: `a⌟b`, and `a⌟b⌟c` for mixed fractions.
+    FracBar,
+    /// LineIO power `^(`: the base comes before it.
+    PowOpen,
+    /// LineIO root `ˣ√(`: the index comes before it.
+    RootOpen,
+    /// A STAT value such as x̄ or Σx.
+    Stat(StatVar),
+    /// Regression estimates, written after their argument: x̂ and ŷ.
+    EstX,
+    EstY,
 }
 
 impl Token {
@@ -159,6 +179,12 @@ impl fmt::Display for Token {
             Self::Ans => "Ans",
             Self::Ran => "Ran#",
             Self::Var(v) => v.name(),
+            Self::FracBar => "⌟",
+            Self::PowOpen => "^(",
+            Self::RootOpen => "ˣ√(",
+            Self::Stat(s) => s.name(),
+            Self::EstX => "x̂",
+            Self::EstY => "ŷ",
         };
         f.write_str(text)
     }

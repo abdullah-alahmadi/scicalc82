@@ -83,6 +83,8 @@ pub(crate) enum Action {
     Hyp,
     DrgMenu,
     ClrMenu,
+    /// SHIFT 1: the STAT menu (STAT mode only).
+    StatMenu,
     Mode,
     Setup,
     Nothing,
@@ -148,6 +150,7 @@ pub(crate) fn action(key: Key, modifier: Modifier) -> Action {
         (Key::MPlus, Alpha) => var(Var::M),
         (Key::MPlus, _) => Action::MemoryAdd { subtract: false },
         (Key::Digit(9), Shift) => Action::ClrMenu,
+        (Key::Digit(1), Shift) => Action::StatMenu,
         (Key::Digit(0), Shift) => func(Func::Rnd),
         (Key::Digit(d), _) => Insert(Token::Digit(d)),
         (Key::Del, _) => Action::Del,

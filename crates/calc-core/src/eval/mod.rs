@@ -9,6 +9,7 @@ use crate::error::{CalcError, CalcResult};
 use crate::format::{NumberFormat, format_decimal};
 use crate::input::Func;
 use crate::state::{AngleUnit, Memory, Rng, Settings};
+use crate::stats::StatData;
 use crate::value::{Rational, Value};
 
 /// Largest argument of x!, since 70! ≥ 10¹⁰⁰.
@@ -20,6 +21,14 @@ pub struct Env<'a> {
     pub settings: &'a Settings,
     pub memory: &'a Memory,
     pub rng: &'a mut Rng,
+    /// STAT data, available in STAT mode only.
+    pub stats: Option<&'a StatData>,
+}
+
+impl Env<'_> {
+    fn stats(&self) -> CalcResult<&StatData> {
+        self.stats.ok_or(CalcError::Math)
+    }
 }
 
 /// What a calculation produces. Pol( and Rec( give two values.
@@ -65,6 +74,15 @@ fn eval(expr: &Expr, env: &mut Env<'_>) -> Result<Value, LocatedError> {
         ExprKind::Ans => Ok(env.memory.ans.clone()),
         // Ran# gives 0.000–0.999 in steps of 0.001.
         ExprKind::Ran => Ok(Value::rational(Rational::new(env.rng.below(1000).into(), 1000).expect("valid"))),
+        ExprKind::Stat(var) => env.stats().and_then(|s| s.value(*var)),
+        ExprKind::Unary(UnaryOp::EstimateX, a) => {
+            let a = eval(a, env)?;
+            env.stats().and_then(|s| s.estimate_x(&a))
+        }
+        ExprKind::Unary(UnaryOp::EstimateY, a) => {
+            let a = eval(a, env)?;
+            env.stats().and_then(|s| s.estimate_y(&a))
+        }
         ExprKind::Unary(op, a) => {
             let a = eval(a, env)?;
             unary(*op, &a, env.settings.angle)
@@ -95,13 +113,8 @@ fn unary(op: UnaryOp, a: &Value, unit: AngleUnit) -> CalcResult<Value> {
         UnaryOp::FromGrad => trig::convert(a, AngleUnit::Gra, unit),
         UnaryOp::Sqrt => a.sqrt(),
         UnaryOp::Cbrt => a.nth_root(3),
-        UnaryOp::Abs => {
-            if a.signum() < 0 {
-                a.neg()
-            } else {
-                Ok(a.clone())
-            }
-        }
+        UnaryOp::Abs => abs(a),
+        UnaryOp::EstimateX | UnaryOp::EstimateY => unreachable!("evaluated with STAT data in `eval`"),
         UnaryOp::Exp => {
             if a.is_zero() {
                 Ok(Value::integer(1))
@@ -153,8 +166,15 @@ fn call(func: Func, args: &[Value], env: &mut Env<'_>) -> CalcResult<Value> {
         Func::RanInt => ran_int(&args[0], &args[1], env.rng),
         Func::Rnd => rnd(x, env.settings.format.number),
         // Only valid as a whole statement; see `evaluate`.
+        Func::Sqrt => x.sqrt(),
+        Func::Cbrt => x.nth_root(3),
+        Func::Abs => abs(x),
         Func::Pol | Func::Rec => Err(CalcError::Syntax),
     }
+}
+
+fn abs(a: &Value) -> CalcResult<Value> {
+    if a.signum() < 0 { a.neg() } else { Ok(a.clone()) }
 }
 
 fn integer(v: &Value) -> Option<i128> {

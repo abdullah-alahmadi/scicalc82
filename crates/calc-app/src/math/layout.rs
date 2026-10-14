@@ -141,6 +141,35 @@ fn single(ctx: &Ctx<'_>, node: &Node, size: f32) -> Laid {
         }
         Node::Frac(num, den) => fraction(ctx, &mut out, num, den, size),
         Node::Root { index, radicand } => root(ctx, &mut out, index.as_deref(), radicand, size),
+        Node::Accent { text, hat } => {
+            let width = ctx.measure.width(text, size);
+            out.prims.push(Prim::Text { pos: pos2(0.0, 0.0), text: text.clone(), size });
+            // The mark sits just above x-height: these are lowercase letters.
+            let y = -0.72 * size;
+            let (left, right) = (width * 0.15, width * 0.85);
+            out.prims.push(if *hat {
+                Prim::Path {
+                    points: vec![
+                        pos2(left, y + 0.06 * size),
+                        pos2(width / 2.0, y - 0.1 * size),
+                        pos2(right, y + 0.06 * size),
+                    ],
+                    width: LINE * size * 0.8,
+                }
+            } else {
+                Prim::Line { from: pos2(left, y), to: pos2(right, y), width: LINE * size * 0.8 }
+            });
+            out.width = width;
+        }
+        Node::FracMark => {
+            // ⌟: a corner open to the upper left.
+            let (x, top, bottom) = (0.38 * size, -0.55 * size, -0.05 * size);
+            out.prims.push(Prim::Path {
+                points: vec![pos2(x, top), pos2(x, bottom), pos2(0.08 * size, bottom)],
+                width: LINE * size,
+            });
+            out.width = 0.5 * size;
+        }
         Node::Abs(content) => {
             let inner = row(ctx, content, size);
             let (pad, gap) = (0.12 * size, 0.06 * size);
@@ -288,6 +317,16 @@ mod tests {
         let indexed = layout(&[Node::Root { index: Some(vec![t("10")]), radicand: vec![t("2")] }], 10.0, &Mono);
         let radicand_x = texts(&indexed).iter().find(|(s, ..)| s == "2").unwrap().1.x;
         assert!(radicand_x > content_x);
+    }
+
+    #[test]
+    fn drawn_marks() {
+        let bar = layout(&[Node::Accent { text: "x".into(), hat: false }], 10.0, &Mono);
+        assert_eq!(bar.width, 6.0);
+        assert!(bar.prims.iter().any(|p| matches!(p, Prim::Line { from, .. } if from.y < -5.0)));
+        let mark = layout(&[t("1"), Node::FracMark, t("2")], 10.0, &Mono);
+        assert!(mark.prims.iter().any(|p| matches!(p, Prim::Path { .. })));
+        assert_eq!(mark.width, 17.0);
     }
 
     #[test]

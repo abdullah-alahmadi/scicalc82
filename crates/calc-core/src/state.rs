@@ -12,10 +12,22 @@ pub enum AngleUnit {
     Gra,
 }
 
+/// The calculation mode chosen with MODE.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CalcMode {
+    #[default]
+    Comp,
+    Stat,
+    Table,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Settings {
     pub angle: AngleUnit,
+    /// Number format, fraction style, and MathIO/LineIO (`format.natural`).
     pub format: FormatSettings,
+    /// Whether the STAT editor has a FREQ column.
+    pub stat_freq: bool,
 }
 
 /// Ans plus the variables A–F, X, Y and the independent memory M.
