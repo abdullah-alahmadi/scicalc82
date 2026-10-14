@@ -5,11 +5,12 @@ use serde::{Deserialize, Serialize};
 use crate::ast::LocatedError;
 use crate::error::{CalcError, CalcResult};
 use crate::eval::{Env, Outcome, evaluate};
-use crate::format::{Formatted, ResultForm, format_dms, format_eng, format_value};
+use crate::format::{Formatted, ResultForm, format_dms, format_eng, format_polar, format_rect, format_value};
 use crate::input::{Cursor, Editor, Func, Item, Row, TemplateKind, Token, Var};
 use crate::key::{Action, Key, Modifier, action, hyperbolic, var_for_key};
 use crate::menu::{self, MenuAction, MenuId, MenuView};
-use crate::parse::parse;
+use crate::number::Number;
+use crate::parse::{ComplexForm, parse, parse_statement};
 use crate::state::{CalcMode, Memory, Rng, Settings};
 use crate::stats::StatData;
 use crate::table::{Table, TableRow, TableStage, x_values};
@@ -39,11 +40,13 @@ pub struct ResultView {
     pub eng: Option<i32>,
     /// Shown as degrees, minutes and seconds (the °′″ key).
     pub dms: bool,
+    /// A trailing ▸r∠θ or ▸a+bi in the input (CMPLX mode).
+    pub complex_form: Option<ComplexForm>,
 }
 
 impl ResultView {
     fn new(outcome: Outcome, form: ResultForm) -> Self {
-        Self { outcome, form, eng: None, dms: false }
+        Self { outcome, form, eng: None, dms: false, complex_form: None }
     }
 }
 
@@ -86,6 +89,7 @@ pub struct ResultLine {
 struct HistoryEntry {
     row: Row,
     outcome: Outcome,
+    complex_form: Option<ComplexForm>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -283,9 +287,25 @@ impl Calculator {
             (Some(step), None) => Formatted::Decimal(format_eng(v.to_f64(), step)),
             (None, None) => format_value(v, &self.settings.format, view.form),
         };
+        // Complex results (and anything with ▸r∠θ) as a+bi or r∠θ.
+        let show_number = |n: &Number| {
+            let polar = match view.complex_form {
+                Some(form) => form == ComplexForm::Polar,
+                None => self.settings.complex_polar && n.is_complex(),
+            };
+            let (settings, form) = (&self.settings.format, view.form);
+            match n {
+                Number::Real(v) if !polar => show(v),
+                _ if polar => match n.to_polar(self.settings.angle) {
+                    Ok((r, theta)) => format_polar(&r, &theta, settings, form),
+                    Err(_) => format_rect(n.re(), &n.im(), settings, form),
+                },
+                _ => format_rect(n.re(), &n.im(), settings, form),
+            }
+        };
         let line = |label, v| ResultLine { label, value: show(v) };
         Some(match &view.outcome {
-            Outcome::Single(v) => vec![line(None, v)],
+            Outcome::Single(n) => vec![ResultLine { label: None, value: show_number(n) }],
             Outcome::Polar { r, theta } => vec![line(Some("r"), r), line(Some("θ"), theta)],
             Outcome::Rect { x, y } => vec![line(Some("X"), x), line(Some("Y"), y)],
         })
@@ -391,6 +411,7 @@ impl Calculator {
             },
             MenuAction::Clear(choice) => self.clear_memory(choice),
             MenuAction::StatEditor => self.screen = Screen::StatEditor,
+            MenuAction::ComplexPolar(polar) => self.settings.complex_polar = polar,
         }
     }
 
@@ -398,7 +419,7 @@ impl Calculator {
         self.mode = mode;
         self.clear_entry();
         self.screen = match mode {
-            CalcMode::Comp => Screen::Calc,
+            CalcMode::Comp | CalcMode::Cmplx => Screen::Calc,
             CalcMode::Stat => Screen::StatEditor,
             CalcMode::Table => {
                 self.show_table_stage(TableStage::Function);
@@ -442,7 +463,18 @@ impl Calculator {
             }
             Pending::None => {}
         }
-        self.perform(action);
+        self.perform(self.mode_action(action));
+    }
+
+    /// Keys that act differently in CMPLX mode: ENG types i there, and the
+    /// CMPLX-only ∠ and CMPLX menu do nothing in other modes.
+    fn mode_action(&self, action: Action) -> Action {
+        let cmplx = self.mode == CalcMode::Cmplx;
+        match action {
+            Action::Eng(1) if cmplx => Action::Insert(Token::Imag),
+            Action::Insert(Token::Angle) | Action::CmplxMenu if !cmplx => Action::Nothing,
+            other => other,
+        }
     }
 
     fn perform(&mut self, action: Action) {
@@ -511,6 +543,7 @@ impl Calculator {
                     self.open_menu(MenuId::Stat);
                 }
             }
+            Action::CmplxMenu => self.open_menu(MenuId::Cmplx),
             Action::Mode | Action::Setup | Action::DrgMenu | Action::ClrMenu | Action::Nothing => {}
         }
     }
@@ -562,6 +595,9 @@ impl Calculator {
                 | Token::RootOpen
                 | Token::EstX
                 | Token::EstY
+                | Token::Angle
+                | Token::ToPolar
+                | Token::ToRect
         );
         self.start_new_if_result(continues_ans);
         self.editor.insert_token(token);
@@ -624,7 +660,11 @@ impl Calculator {
         if let Some(i) = index {
             let entry = &self.history[i];
             self.editor = Editor::from_row(entry.row.clone());
-            self.phase = Phase::Result(ResultView::new(entry.outcome.clone(), ResultForm::Standard));
+            let view = ResultView {
+                complex_form: entry.complex_form,
+                ..ResultView::new(entry.outcome.clone(), ResultForm::Standard)
+            };
+            self.phase = Phase::Result(view);
             self.replay = Some(i);
         }
     }
@@ -637,15 +677,18 @@ impl Calculator {
         }
         let row = self.editor.root().clone();
         let stats = (self.mode == CalcMode::Stat).then_some(&self.stats);
-        let mut env = Env { settings: &self.settings, memory: &self.memory, rng: &mut self.rng, stats };
-        match parse(&row).and_then(|expr| evaluate(&expr, &mut env)) {
-            Ok(outcome) => {
-                self.memory.ans = outcome.primary().clone();
+        let complex = self.mode == CalcMode::Cmplx;
+        let mut env = Env { settings: &self.settings, memory: &self.memory, rng: &mut self.rng, stats, complex };
+        let result = parse_statement(&row)
+            .and_then(|(expr, complex_form)| evaluate(&expr, &mut env).map(|outcome| (outcome, complex_form)));
+        match result {
+            Ok((outcome, complex_form)) => {
+                self.memory.ans = outcome.primary();
                 if self.history.len() == MAX_HISTORY {
                     self.history.remove(0);
                 }
-                self.history.push(HistoryEntry { row, outcome: outcome.clone() });
-                self.phase = Phase::Result(ResultView::new(outcome.clone(), form));
+                self.history.push(HistoryEntry { row, outcome: outcome.clone(), complex_form });
+                self.phase = Phase::Result(ResultView { complex_form, ..ResultView::new(outcome.clone(), form) });
                 self.replay = None;
                 Some(outcome)
             }
@@ -658,11 +701,11 @@ impl Calculator {
 
     /// The value STO and M+ act on: the result on screen, or the input
     /// evaluated now, or Ans for an empty input.
-    fn current_value(&mut self) -> Option<Value> {
+    fn current_value(&mut self) -> Option<Number> {
         match &self.phase {
-            Phase::Result(view) => Some(view.outcome.primary().clone()),
+            Phase::Result(view) => Some(view.outcome.primary()),
             _ if self.editor.is_empty() => Some(self.memory.ans.clone()),
-            _ => self.execute(ResultForm::Standard).map(|o| o.primary().clone()),
+            _ => self.execute(ResultForm::Standard).map(|o| o.primary()),
         }
     }
 
@@ -691,8 +734,9 @@ impl Calculator {
 
     /// Evaluates a standalone input: a STAT cell or a TABLE range value.
     fn evaluate_input(&mut self, row: &Row) -> CalcResult<Value> {
-        let mut env = Env { settings: &self.settings, memory: &self.memory, rng: &mut self.rng, stats: None };
-        parse(row).and_then(|expr| evaluate(&expr, &mut env)).map(|o| o.primary().clone()).map_err(|e| e.error)
+        let mut env =
+            Env { settings: &self.settings, memory: &self.memory, rng: &mut self.rng, stats: None, complex: false };
+        parse(row).and_then(|expr| evaluate(&expr, &mut env)).map_err(|e| e.error)?.primary().into_real()
     }
 
     // ---- STAT editor ----
@@ -824,9 +868,10 @@ impl Calculator {
         let mut rows = Vec::with_capacity(xs.len());
         for x in xs {
             let mut memory = self.memory.clone();
-            memory.set(Var::X, x.clone());
-            let mut env = Env { settings: &self.settings, memory: &memory, rng: &mut self.rng, stats: None };
-            let fx = evaluate(&expr, &mut env).map(|o| o.primary().clone()).map_err(|e| e.error);
+            memory.set(Var::X, Number::Real(x.clone()));
+            let mut env =
+                Env { settings: &self.settings, memory: &memory, rng: &mut self.rng, stats: None, complex: false };
+            let fx = evaluate(&expr, &mut env).map_err(|e| e.error).and_then(|o| o.primary().into_real());
             rows.push(TableRow { x, fx });
         }
         Ok(rows)
@@ -888,6 +933,7 @@ mod tests {
                 "up" => Key::Up,
                 "down" => Key::Down,
                 "mode" => Key::Mode,
+                "abs" => Key::Abs,
                 _ => panic!("unknown key word {word:?}"),
             };
             calc.press(key);
@@ -1011,7 +1057,7 @@ mod tests {
         assert_eq!(calc.result_text().unwrap(), "7");
         assert_eq!(calc.editor().root().to_string(), "D");
         let calc = run("5 S rcl neg S 9 2");
-        assert_eq!(calc.memory().get(Var::A), &Value::zero());
+        assert_eq!(calc.memory().get(Var::A), &Number::zero());
     }
 
     #[test]
@@ -1080,10 +1126,10 @@ mod tests {
         calc.reseed(42);
         for _ in 0..20 {
             keys(&mut calc, "S . =");
-            let r = calc.memory().ans.as_rational().expect("Ran# is exact");
+            let r = calc.memory().ans.re().as_rational().expect("Ran# is exact");
             assert!(r.signum() >= 0 && r.to_f64() < 1.0 && 1000 % r.denom() == 0);
             keys(&mut calc, "A . 1 S ) 6 =");
-            let n = calc.memory().ans.as_rational().unwrap();
+            let n = calc.memory().ans.re().as_rational().unwrap();
             assert!(n.is_integer() && (1..=6).contains(&n.numer()));
         }
         let mut calc = Calculator::new();
@@ -1138,7 +1184,7 @@ mod tests {
     }
 
     fn stat_session(kind: &str) -> Calculator {
-        run(&format!("mode 2 {kind}"))
+        run(&format!("mode 3 {kind}"))
     }
 
     #[test]
@@ -1167,7 +1213,7 @@ mod tests {
 
     #[test]
     fn frequencies() {
-        let mut calc = run("S mode down 3 1 mode 2 1");
+        let mut calc = run("S mode down 3 1 mode 3 1");
         assert_eq!(calc.stats().columns().len(), 2);
         keys(&mut calc, "1 = 5 = up right 3 =");
         keys(&mut calc, "ac S 1 4 2 =");
@@ -1202,7 +1248,7 @@ mod tests {
 
     #[test]
     fn table_mode() {
-        let mut calc = run("mode 3");
+        let mut calc = run("mode 4");
         assert_eq!(calc.screen(), Screen::Table);
         assert_eq!(calc.table().stage, TableStage::Function);
         // f(X) = X² + 1 from 1 to 3.
@@ -1222,39 +1268,132 @@ mod tests {
 
     #[test]
     fn table_errors() {
-        let mut calc = run("mode 3 A ) = 1 = 100 = =");
+        let mut calc = run("mode 4 A ) = 1 = 100 = =");
         assert_eq!(calc.table().error, Some(CalcError::Memory));
         keys(&mut calc, "ac");
         assert_eq!(calc.table().stage, TableStage::Function);
         // Rows that fail show their error without stopping the table.
-        let calc = run("mode 3 1 / A ) = neg 1 = 1 = =");
+        let calc = run("mode 4 1 / A ) = neg 1 = 1 = =");
         let errors: Vec<_> = calc.table().rows.iter().map(|r| r.fx.is_err()).collect();
         assert_eq!(errors, vec![false, true, false]);
+    }
+
+    fn cmplx(script: &str) -> String {
+        result(&format!("mode 2 {script}"))
+    }
+
+    #[test]
+    fn complex_arithmetic() {
+        // In CMPLX mode the ENG key types i.
+        assert_eq!(cmplx("1 + 2 eng ="), "1+2i");
+        assert_eq!(cmplx("( 1 + eng ) * ( 1 - eng ) ="), "2");
+        assert_eq!(cmplx("( 1 + eng ) sq ="), "2i");
+        assert_eq!(cmplx("1 / eng ="), "-i");
+        assert_eq!(cmplx("( 3 + 4 eng ) / ( 1 + 2 eng ) ="), "11/5-2/5i");
+        assert_eq!(cmplx("eng pow 4 ="), "1");
+        assert_eq!(cmplx("3 eng - 3 eng ="), "0");
+        assert_eq!(cmplx("1 / 2 + sqrt 3 right eng / 2 ="), "1/2+√3/2i");
+        // Implied multiplication binds tighter than ÷: 1÷2i = 1/(2i).
+        assert_eq!(cmplx("1 / 2 eng ="), "-1/2i");
+        assert_eq!(cmplx("sqrt neg 4 ="), "2i");
+    }
+
+    #[test]
+    fn polar_form() {
+        // SHIFT (−) types ∠; angles follow the angle unit.
+        assert_eq!(cmplx("2 S neg 30 ="), "√3+i");
+        assert_eq!(cmplx("2 S neg 90 ="), "2i");
+        assert_eq!(cmplx("1 + 2 S neg 180 ="), "-1");
+        // CMPLX menu (SHIFT 2): 3 ▸r∠θ, 4 ▸a+bi.
+        assert_eq!(cmplx("1 + eng S 2 3 ="), "√2∠45");
+        assert_eq!(cmplx("neg 1 - eng S 2 3 ="), "√2∠-135");
+        assert_eq!(cmplx("2 S neg 30 S 2 4 ="), "√3+i");
+        assert_eq!(result_in(AngleUnit::Rad, "mode 2 1 + eng S 2 3 ="), "√2∠π/4");
+        // SETUP page 2, item 4: show complex results as r∠θ by default.
+        let mut calc = run("S mode down 4 2 mode 2");
+        assert!(calc.settings().complex_polar);
+        keys(&mut calc, "3 + 4 eng =");
+        assert_eq!(calc.result_text().unwrap(), "5∠53.13010235");
+        // Real results stay plain unless ▸r∠θ asks otherwise.
+        keys(&mut calc, "2 =");
+        assert_eq!(calc.result_text().unwrap(), "2");
+    }
+
+    #[test]
+    fn complex_functions() {
+        assert_eq!(cmplx("abs 3 + 4 eng ="), "5");
+        assert_eq!(cmplx("S 2 1 1 + eng ) ="), "45");
+        assert_eq!(cmplx("S 2 1 neg 1 ) ="), "180");
+        assert_eq!(cmplx("S 2 2 1 + 2 eng ) ="), "1-2i");
+        // Real-only functions reject complex numbers, as on the device.
+        assert_eq!(error("mode 2 sin eng ) ="), CalcError::Math);
+        assert_eq!(error("mode 2 log eng ) ="), CalcError::Math);
+        assert_eq!(error("mode 2 eng pow 1 frac 2 ="), CalcError::Math);
+        assert_eq!(error("mode 2 sqrt eng ="), CalcError::Math);
+    }
+
+    #[test]
+    fn complex_memory() {
+        // Ans and variables hold complex numbers.
+        assert_eq!(cmplx("1 + eng S rcl neg ac A neg * 2 ="), "2+2i");
+        assert_eq!(cmplx("1 + eng = ans * ans ="), "2i");
+        assert_eq!(cmplx("eng m+ eng m+ A m+ ="), "2i");
+        // ▸r∠θ after a result continues from Ans.
+        assert_eq!(cmplx("eng = S 2 3 ="), "1∠90");
+    }
+
+    #[test]
+    fn complex_input_only_in_cmplx_mode() {
+        // In COMP, ENG is ENG and ∠ is ignored.
+        assert_eq!(result("2 S neg 30 ="), "230");
+        assert_eq!(result("1234 = eng"), "1.234×10^3");
+        assert!(run("S 2").menu().is_none());
+        assert_eq!(error("sqrt neg 4 ="), CalcError::Math);
+        // A complex Ans can't feed real-only STAT or TABLE inputs.
+        let mut calc = run("mode 2 eng = mode 3 1 ans =");
+        assert_eq!(calc.stat_editor().error, Some(CalcError::Math));
+        keys(&mut calc, "ac");
     }
 
     #[test]
     fn snapshots_round_trip() {
         // Exact values, a surd, a decimal, settings, STAT data and a TABLE function.
         let mut calc = run("S mode 4 S mode 6 2 2 / 3 S rcl neg sqrt 2 S rcl dms 1 . 5 sin 1 = m+");
-        keys(&mut calc, "mode 2 2 1 = 2 = up up right 3 = 5 = ac");
+        keys(&mut calc, "mode 3 2 1 = 2 = up up right 3 = 5 = ac");
         let saved = ron::to_string(&calc.snapshot()).unwrap();
         let restored = Calculator::restore(ron::from_str(&saved).unwrap());
         assert_eq!(restored.snapshot(), calc.snapshot());
         assert_eq!(restored.mode(), CalcMode::Stat);
         assert_eq!(restored.screen(), Screen::Calc);
-        assert_eq!(restored.memory().get(Var::A), &Value::rational(crate::value::Rational::new(2, 3).unwrap()));
-        assert_eq!(restored.memory().get(Var::B), &Value::integer(2).sqrt().unwrap());
-        assert!(!restored.memory().get(Var::M).is_exact());
+        assert_eq!(
+            restored.memory().get(Var::A),
+            &Number::Real(Value::rational(crate::value::Rational::new(2, 3).unwrap()))
+        );
+        assert_eq!(restored.memory().get(Var::B), &Number::Real(Value::integer(2).sqrt().unwrap()));
+        assert!(!restored.memory().get(Var::M).re().is_exact());
         let mut restored = restored;
         // B = 2, shown in the restored Fix 2 format.
         keys(&mut restored, "S 1 5 2 =");
         assert_eq!(restored.result_text().unwrap(), "2.00");
 
-        let table = run("mode 3 A ) sq = 2 = 4 = =");
+        let table = run("mode 4 A ) sq = 2 = 4 = =");
         let restored = Calculator::restore(ron::from_str(&ron::to_string(&table.snapshot()).unwrap()).unwrap());
         assert_eq!(restored.screen(), Screen::Table);
         assert_eq!(restored.editor().root().to_string(), "X²");
         assert_eq!(restored.table().start, Value::integer(2));
+    }
+
+    #[test]
+    fn complex_memory_is_saved() {
+        let calc = run("mode 2 1 + 2 eng S rcl neg");
+        let saved = ron::to_string(&calc.snapshot()).unwrap();
+        let restored = Calculator::restore(ron::from_str(&saved).unwrap());
+        assert_eq!(restored.memory().get(Var::A), &Number::from_parts(Value::integer(1), Value::integer(2)));
+        assert_eq!(restored.mode(), CalcMode::Cmplx);
+        // Saves from before complex support store plain values; they still load.
+        let old_memory = r#"(vars: (Surd([(coef: (num: "5", den: "1"), radicand: 1)]), Surd([]), Surd([]), Surd([]), Surd([]), Surd([]), Surd([]), Surd([]), Surd([])), ans: Surd([]))"#;
+        let memory: Memory = ron::from_str(old_memory).unwrap();
+        assert_eq!(memory.get(Var::A), &Number::Real(Value::integer(5)));
     }
 
     #[test]
@@ -1273,7 +1412,7 @@ mod tests {
 
     #[test]
     fn clear_all_resets_mode() {
-        let calc = run("S mode 2 mode 3 S 9 3");
+        let calc = run("S mode 2 mode 4 S 9 3");
         assert_eq!(calc.mode(), CalcMode::Comp);
         assert!(calc.settings().format.natural);
     }

@@ -8,6 +8,7 @@ use crate::ast::{BinaryOp, Expr, ExprKind, LocatedError, UnaryOp};
 use crate::error::{CalcError, CalcResult};
 use crate::format::{NumberFormat, format_decimal};
 use crate::input::Func;
+use crate::number::Number;
 use crate::state::{AngleUnit, Memory, Rng, Settings};
 use crate::stats::StatData;
 use crate::value::{Rational, Value};
@@ -23,6 +24,8 @@ pub struct Env<'a> {
     pub rng: &'a mut Rng,
     /// STAT data, available in STAT mode only.
     pub stats: Option<&'a StatData>,
+    /// CMPLX mode: i and ∠ are allowed, and √ of a negative number is imaginary.
+    pub complex: bool,
 }
 
 impl Env<'_> {
@@ -34,16 +37,17 @@ impl Env<'_> {
 /// What a calculation produces. Pol( and Rec( give two values.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Outcome {
-    Single(Value),
+    Single(Number),
     Polar { r: Value, theta: Value },
     Rect { x: Value, y: Value },
 }
 
 impl Outcome {
     /// The value that becomes Ans.
-    pub fn primary(&self) -> &Value {
+    pub fn primary(&self) -> Number {
         match self {
-            Self::Single(v) | Self::Polar { r: v, .. } | Self::Rect { x: v, .. } => v,
+            Self::Single(n) => n.clone(),
+            Self::Polar { r: v, .. } | Self::Rect { x: v, .. } => Number::Real(v.clone()),
         }
     }
 }
@@ -54,43 +58,49 @@ pub fn evaluate(expr: &Expr, env: &mut Env<'_>) -> Result<Outcome, LocatedError>
         ExprKind::Call(func @ (Func::Pol | Func::Rec), args) => {
             let a = eval(&args[0], env)?;
             let b = eval(&args[1], env)?;
+            let (a, b) = (a.real().map_err(locate)?, b.real().map_err(locate)?);
             let unit = env.settings.angle;
             if *func == Func::Pol {
-                pol(&a, &b, unit).map(|(r, theta)| Outcome::Polar { r, theta }).map_err(locate)
+                pol(a, b, unit).map(|(r, theta)| Outcome::Polar { r, theta }).map_err(locate)
             } else {
-                rec(&a, &b, unit).map(|(x, y)| Outcome::Rect { x, y }).map_err(locate)
+                rec(a, b, unit).map(|(x, y)| Outcome::Rect { x, y }).map_err(locate)
             }
         }
         _ => eval(expr, env).map(Outcome::Single),
     }
 }
 
-fn eval(expr: &Expr, env: &mut Env<'_>) -> Result<Value, LocatedError> {
+fn eval(expr: &Expr, env: &mut Env<'_>) -> Result<Number, LocatedError> {
     let result = match &expr.kind {
-        ExprKind::Number(v) => Ok(v.clone()),
-        ExprKind::Pi => Ok(Value::pi()),
-        ExprKind::Euler => Value::decimal(E),
+        ExprKind::Number(v) => Ok(Number::Real(v.clone())),
+        ExprKind::Pi => Ok(Number::Real(Value::pi())),
+        ExprKind::Euler => Value::decimal(E).map(Number::Real),
+        ExprKind::Imag if env.complex => Ok(Number::i()),
+        ExprKind::Imag => Err(CalcError::Syntax),
         ExprKind::Var(v) => Ok(env.memory.get(*v).clone()),
         ExprKind::Ans => Ok(env.memory.ans.clone()),
         // Ran# gives 0.000–0.999 in steps of 0.001.
-        ExprKind::Ran => Ok(Value::rational(Rational::new(env.rng.below(1000).into(), 1000).expect("valid"))),
-        ExprKind::Stat(var) => env.stats().and_then(|s| s.value(*var)),
-        ExprKind::Unary(UnaryOp::EstimateX, a) => {
-            let a = eval(a, env)?;
-            env.stats().and_then(|s| s.estimate_x(&a))
+        ExprKind::Ran => {
+            Ok(Number::Real(Value::rational(Rational::new(env.rng.below(1000).into(), 1000).expect("valid"))))
         }
-        ExprKind::Unary(UnaryOp::EstimateY, a) => {
+        ExprKind::Stat(var) => env.stats().and_then(|s| s.value(*var)).map(Number::Real),
+        ExprKind::Unary(op @ (UnaryOp::EstimateX | UnaryOp::EstimateY), a) => {
             let a = eval(a, env)?;
-            env.stats().and_then(|s| s.estimate_y(&a))
+            a.real()
+                .and_then(|a| {
+                    let stats = env.stats()?;
+                    if *op == UnaryOp::EstimateX { stats.estimate_x(a) } else { stats.estimate_y(a) }
+                })
+                .map(Number::Real)
         }
         ExprKind::Unary(op, a) => {
             let a = eval(a, env)?;
-            unary(*op, &a, env.settings.angle)
+            unary(*op, &a, env)
         }
         ExprKind::Binary(op, a, b) => {
             let a = eval(a, env)?;
             let b = eval(b, env)?;
-            binary(*op, &a, &b)
+            binary(*op, &a, &b, env)
         }
         ExprKind::Call(func, args) => {
             let args = args.iter().map(|a| eval(a, env)).collect::<Result<Vec<_>, _>>()?;
@@ -100,21 +110,27 @@ fn eval(expr: &Expr, env: &mut Env<'_>) -> Result<Value, LocatedError> {
     result.map_err(|error| LocatedError { error, at: expr.at.clone() })
 }
 
-fn unary(op: UnaryOp, a: &Value, unit: AngleUnit) -> CalcResult<Value> {
+/// Operators that accept complex numbers; the rest need real operands.
+fn unary(op: UnaryOp, a: &Number, env: &Env<'_>) -> CalcResult<Number> {
     match op {
         UnaryOp::Neg => a.neg(),
         UnaryOp::Square => a.powi(2),
         UnaryOp::Cube => a.powi(3),
         UnaryOp::Recip => a.recip(),
+        UnaryOp::Abs => a.abs().map(Number::Real),
+        UnaryOp::Sqrt => a.sqrt(env.complex),
+        _ => real_unary(op, a.real()?, env.settings.angle).map(Number::Real),
+    }
+}
+
+fn real_unary(op: UnaryOp, a: &Value, unit: AngleUnit) -> CalcResult<Value> {
+    match op {
         UnaryOp::Factorial => factorial(a),
         UnaryOp::Percent => a.div(&Value::integer(100)),
         UnaryOp::FromDeg => trig::convert(a, AngleUnit::Deg, unit),
         UnaryOp::FromRad => trig::convert(a, AngleUnit::Rad, unit),
         UnaryOp::FromGrad => trig::convert(a, AngleUnit::Gra, unit),
-        UnaryOp::Sqrt => a.sqrt(),
         UnaryOp::Cbrt => a.nth_root(3),
-        UnaryOp::Abs => abs(a),
-        UnaryOp::EstimateX | UnaryOp::EstimateY => unreachable!("evaluated with STAT data in `eval`"),
         UnaryOp::Exp => {
             if a.is_zero() {
                 Ok(Value::integer(1))
@@ -122,24 +138,53 @@ fn unary(op: UnaryOp, a: &Value, unit: AngleUnit) -> CalcResult<Value> {
                 Value::decimal(a.to_f64().exp())
             }
         }
+        _ => unreachable!("handled in `unary` or `eval`"),
     }
 }
 
-fn binary(op: BinaryOp, a: &Value, b: &Value) -> CalcResult<Value> {
+fn binary(op: BinaryOp, a: &Number, b: &Number, env: &Env<'_>) -> CalcResult<Number> {
     match op {
         BinaryOp::Add => a.add(b),
         BinaryOp::Sub => a.sub(b),
         BinaryOp::Mul => a.mul(b),
         BinaryOp::Div => a.div(b),
+        // Complex numbers can be raised to integer powers only, as on the device.
+        BinaryOp::Pow if a.is_complex() || b.is_complex() => {
+            let n = b.real().ok().and_then(integer).and_then(|n| i64::try_from(n).ok()).ok_or(CalcError::Math)?;
+            a.powi(n)
+        }
+        BinaryOp::Polar if env.complex => Number::from_polar(a.real()?, b.real()?, env.settings.angle),
+        BinaryOp::Polar => Err(CalcError::Syntax),
+        _ => real_binary(op, a.real()?, b.real()?).map(Number::Real),
+    }
+}
+
+fn real_binary(op: BinaryOp, a: &Value, b: &Value) -> CalcResult<Value> {
+    match op {
         BinaryOp::Pow => a.pow(b),
         BinaryOp::Root => b.pow(&a.recip()?),
         BinaryOp::LogBase => log_base(a, b),
         BinaryOp::Perm => perm_comb(a, b, false),
         BinaryOp::Comb => perm_comb(a, b, true),
+        _ => unreachable!("handled in `binary`"),
     }
 }
 
-fn call(func: Func, args: &[Value], env: &mut Env<'_>) -> CalcResult<Value> {
+fn call(func: Func, args: &[Number], env: &mut Env<'_>) -> CalcResult<Number> {
+    let z = &args[0];
+    match func {
+        Func::Arg => z.arg(env.settings.angle).map(Number::Real),
+        Func::Conjg => z.conj(),
+        Func::Abs => z.abs().map(Number::Real),
+        Func::Sqrt => z.sqrt(env.complex),
+        _ => {
+            let reals = args.iter().map(|a| a.real().cloned()).collect::<CalcResult<Vec<_>>>()?;
+            real_call(func, &reals, env).map(Number::Real)
+        }
+    }
+}
+
+fn real_call(func: Func, args: &[Value], env: &mut Env<'_>) -> CalcResult<Value> {
     let unit = env.settings.angle;
     let x = &args[0];
     let decimal = |f: fn(f64) -> f64| Value::decimal(f(x.to_f64()));
@@ -165,16 +210,11 @@ fn call(func: Func, args: &[Value], env: &mut Env<'_>) -> CalcResult<Value> {
         Func::Ln => decimal(f64::ln),
         Func::RanInt => ran_int(&args[0], &args[1], env.rng),
         Func::Rnd => rnd(x, env.settings.format.number),
-        // Only valid as a whole statement; see `evaluate`.
-        Func::Sqrt => x.sqrt(),
         Func::Cbrt => x.nth_root(3),
-        Func::Abs => abs(x),
+        // Only valid as a whole statement; see `evaluate`.
         Func::Pol | Func::Rec => Err(CalcError::Syntax),
+        Func::Arg | Func::Conjg | Func::Abs | Func::Sqrt => unreachable!("handled in `call`"),
     }
-}
-
-fn abs(a: &Value) -> CalcResult<Value> {
-    if a.signum() < 0 { a.neg() } else { Ok(a.clone()) }
 }
 
 fn integer(v: &Value) -> Option<i128> {
@@ -238,7 +278,7 @@ fn rnd(x: &Value, number: NumberFormat) -> CalcResult<Value> {
 }
 
 /// Pol(x, y) → (r, θ), with θ in (−180°, 180°].
-fn pol(x: &Value, y: &Value, unit: AngleUnit) -> CalcResult<(Value, Value)> {
+pub(crate) fn pol(x: &Value, y: &Value, unit: AngleUnit) -> CalcResult<(Value, Value)> {
     let r = x.powi(2)?.add(&y.powi(2)?)?.sqrt()?;
     let exact_turns = match (x.signum(), y.signum()) {
         (0, 0) => Some(Rational::ZERO),
@@ -260,6 +300,6 @@ fn pol(x: &Value, y: &Value, unit: AngleUnit) -> CalcResult<(Value, Value)> {
 }
 
 /// Rec(r, θ) → (x, y).
-fn rec(r: &Value, theta: &Value, unit: AngleUnit) -> CalcResult<(Value, Value)> {
+pub(crate) fn rec(r: &Value, theta: &Value, unit: AngleUnit) -> CalcResult<(Value, Value)> {
     Ok((r.mul(&trig::cos(theta, unit)?)?, r.mul(&trig::sin(theta, unit)?)?))
 }

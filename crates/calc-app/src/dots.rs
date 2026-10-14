@@ -129,6 +129,7 @@ const GLYPHS: &[(char, &[&str])] = &[
     ('◀', &["...#", "..##", ".###", "####", ".###", "..##", "...#"]),
     ('▶', &["#...", "##..", "###.", "####", "###.", "##..", "#..."]),
     ('▸', &["...", "#..", "##.", "###", "##.", "#..", "..."]),
+    ('∠', &[".....", "....#", "...#.", "..#..", ".#...", "#....", "#####"]),
 ];
 
 /// A parsed glyph: `rows[r]` has bit `c` set when column `c` is lit.
@@ -278,6 +279,7 @@ mod tests {
             "1:Type 2:Data 3:Sum 4:Var 5:Reg 6:MinMax Σx² Σx Σy² Σy Σxy n σx sx σy sy minX maxX minY maxY",
             "sin( cos( tan( log( ln( Pol( Rec( RanInt#( Rnd( Abs( √( Ans Ran# π e ×10 − - × ÷ ° ′ ″ ! % , ( )",
             "r= θ= X= Y= f(X)= Table Range Start? End? Step? F(X) ERROR 1234567890.",
+            "CMPLX 2:CMPLX 1:arg 2:Conjg 3:▸r∠θ 4:▸a+bi Complex Result? 1:a+bi 2:r∠θ 1+2i √2∠45 arg( Conjg(",
         ];
         for text in samples {
             let missing: String = text.chars().filter(|&c| glyph(c).is_none()).collect();

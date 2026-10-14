@@ -19,6 +19,7 @@ The name, look and code are original.
 - **SETUP:** MthIO/LineIO, Deg/Rad/Gra, Fix/Sci/Norm, ab/c or d/c fractions, and STAT frequency on/off.
 - **Modes:**
   - **COMP:** ordinary calculations.
+  - **CMPLX:** complex numbers in rectangular (`a+bi`) and polar (`r∠θ`) form, with exact results such as `2∠30 = √3+i`. Supports + − × ÷, integer powers, Abs, arg, Conjg and conversion between the two forms.
   - **STAT:** 1-VAR statistics and A+BX linear regression, with a data editor and an optional FREQ column.
   - **TABLE:** values of f(X) over a range.
 - **Persistence:** settings, memory, mode, STAT data and the TABLE setup are saved between launches. On Windows the file is `%APPDATA%\scicalc82\data\app.ron`. If the file is damaged, the app starts fresh instead of failing.
@@ -72,11 +73,16 @@ Click the keys, or use the PC keyboard. Hovering over the model name in the app 
 | `f` `!` `%` `,` | Fraction, x!, %, comma |
 | `p` `e` `E` | π, e, ×10ˣ |
 | `a` `d` `m` | Ans, S⇔D, M+ |
+| `i` `<` | i and ∠ (CMPLX mode) |
 | Ctrl+C | Copy the result |
 
 The modes work like the device:
-- **MODE:** 1 for COMP, 2 for STAT, 3 for TABLE.
-- **SHIFT MODE:** opens SETUP. ▼ shows its second page.
+- **MODE:** 1 for COMP, 2 for CMPLX, 3 for STAT, 4 for TABLE.
+- **SHIFT MODE:** opens SETUP. ▼ shows its second page, which includes the CMPLX result format (a+bi or r∠θ).
+- **CMPLX mode:**
+  - The ENG key types `i`, and SHIFT (−) types `∠`. Angles use the current angle unit.
+  - SHIFT 2 opens the CMPLX menu: arg, Conjg, ▸r∠θ and ▸a+bi. Put ▸r∠θ or ▸a+bi at the end of a calculation to show its result in that form.
+  - √ of a negative number gives an imaginary result. Real-only functions such as sin and log reject complex numbers, as on the device.
 - **STAT mode:** SHIFT 1 opens the STAT menu (Type, Data, Sum, Var, Reg, MinMax).
 - **CLR (SHIFT 9):** resets setup, memory, or both.
 

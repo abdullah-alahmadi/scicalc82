@@ -74,6 +74,35 @@ pub enum Formatted {
     Surd(SurdText),
     Pi(PiText),
     Dms(DmsText),
+    Complex(ComplexText),
+}
+
+/// A complex result, each part formatted like a real result.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ComplexText {
+    /// `re ± im·i`. `re` is absent when zero; `im` (the magnitude of the
+    /// imaginary part) is absent when it is 1, giving just `i`.
+    Rect { re: Option<Box<Formatted>>, im_negative: bool, im: Option<Box<Formatted>> },
+    /// `r∠θ`
+    Polar { r: Box<Formatted>, theta: Box<Formatted> },
+}
+
+/// `re + im·i` as the display shows it.
+pub fn format_rect(re: &Value, im: &Value, settings: &FormatSettings, form: ResultForm) -> Formatted {
+    let im_negative = im.signum() < 0;
+    let magnitude = if im_negative { im.neg().unwrap_or_else(|_| im.clone()) } else { im.clone() };
+    let part = |v: &Value| Box::new(format_value(v, settings, form));
+    Formatted::Complex(ComplexText::Rect {
+        re: (!re.is_zero()).then(|| part(re)),
+        im_negative,
+        im: (magnitude.to_f64() != 1.0).then(|| part(&magnitude)),
+    })
+}
+
+/// `r∠θ` as the display shows it.
+pub fn format_polar(r: &Value, theta: &Value, settings: &FormatSettings, form: ResultForm) -> Formatted {
+    let part = |v: &Value| Box::new(format_value(v, settings, form));
+    Formatted::Complex(ComplexText::Polar { r: part(r), theta: part(theta) })
 }
 
 /// Degrees, minutes and seconds: `±d°m′s″`.
@@ -304,6 +333,29 @@ impl fmt::Display for Formatted {
             Self::Surd(s) => s.fmt(f),
             Self::Pi(p) => p.fmt(f),
             Self::Dms(d) => d.fmt(f),
+            Self::Complex(c) => c.fmt(f),
+        }
+    }
+}
+
+impl fmt::Display for ComplexText {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Rect { re, im_negative, im } => {
+                if let Some(re) = re {
+                    re.fmt(f)?;
+                }
+                match (im_negative, re) {
+                    (true, _) => f.write_str("-")?,
+                    (false, Some(_)) => f.write_str("+")?,
+                    (false, None) => {}
+                }
+                if let Some(im) = im {
+                    im.fmt(f)?;
+                }
+                f.write_str("i")
+            }
+            Self::Polar { r, theta } => write!(f, "{r}∠{theta}"),
         }
     }
 }

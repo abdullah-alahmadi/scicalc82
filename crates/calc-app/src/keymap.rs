@@ -40,6 +40,9 @@ pub fn for_char(c: char) -> Vec<Key> {
         'a' => &[Key::Ans],
         'd' => &[Key::SToD],
         'm' => &[Key::MPlus],
+        // CMPLX mode: i is the ENG key; < is the nearest thing to ∠.
+        'i' => &[Key::Eng],
+        '<' => &[Key::Shift, Key::Neg],
         _ => &[],
     };
     keys.to_vec()
@@ -66,4 +69,5 @@ Backspace DEL · Esc AC · arrows move/replay\n\
 s c t sin cos tan · S C T inverse · h hyp\n\
 l log · n ln · r √ · q x² · f fraction · ! x!\n\
 p π · e e · E ×10^x · a Ans · d S⇔D · m M+\n\
+CMPLX mode: i i · < ∠\n\
 Ctrl+C copies the result";

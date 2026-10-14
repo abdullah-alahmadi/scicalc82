@@ -36,6 +36,10 @@ pub enum Func {
     Sqrt,
     Cbrt,
     Abs,
+    /// CMPLX: the argument (angle) of a complex number.
+    Arg,
+    /// CMPLX: the complex conjugate.
+    Conjg,
 }
 
 impl Func {
@@ -62,6 +66,8 @@ impl Func {
             Self::Sqrt => "√(",
             Self::Cbrt => "∛(",
             Self::Abs => "Abs(",
+            Self::Arg => "arg(",
+            Self::Conjg => "Conjg(",
         }
     }
 }
@@ -143,6 +149,14 @@ pub enum Token {
     /// Regression estimates, written after their argument: x̂ and ŷ.
     EstX,
     EstY,
+    /// The imaginary unit i (CMPLX mode).
+    Imag,
+    /// ∠ between a modulus and an angle (CMPLX mode).
+    Angle,
+    /// Show the result in polar form, ▸r∠θ (CMPLX mode, at the end of the input).
+    ToPolar,
+    /// Show the result in rectangular form, ▸a+bi (CMPLX mode, at the end of the input).
+    ToRect,
 }
 
 impl Token {
@@ -187,6 +201,10 @@ impl fmt::Display for Token {
             Self::Stat(s) => s.name(),
             Self::EstX => "x̂",
             Self::EstY => "ŷ",
+            Self::Imag => "i",
+            Self::Angle => "∠",
+            Self::ToPolar => "▸r∠θ",
+            Self::ToRect => "▸a+bi",
         };
         f.write_str(text)
     }

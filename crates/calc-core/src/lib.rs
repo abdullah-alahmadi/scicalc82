@@ -8,6 +8,7 @@ pub mod format;
 pub mod input;
 pub mod key;
 pub mod menu;
+pub mod number;
 pub mod parse;
 pub mod state;
 pub mod stats;

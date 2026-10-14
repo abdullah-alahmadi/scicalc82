@@ -27,6 +27,8 @@ pub enum ExprKind {
     Var(Var),
     Ans,
     Ran,
+    /// The imaginary unit i (CMPLX mode).
+    Imag,
     Stat(StatVar),
     Unary(UnaryOp, Box<Expr>),
     Binary(BinaryOp, Box<Expr>, Box<Expr>),
@@ -68,4 +70,6 @@ pub enum BinaryOp {
     Root,
     /// base, argument
     LogBase,
+    /// r∠θ: modulus, angle (CMPLX mode)
+    Polar,
 }

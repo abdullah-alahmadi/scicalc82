@@ -1,7 +1,7 @@
 //! The device's numbered menus: MODE, SETUP, DRG▸, CLR and the STAT menus.
 
 use crate::format::{FractionStyle, NumberFormat};
-use crate::input::Token;
+use crate::input::{Func, Token};
 use crate::state::{AngleUnit, CalcMode};
 use crate::stats::{StatKind, StatVar};
 
@@ -24,6 +24,10 @@ pub enum MenuId {
     StatVar,
     StatReg,
     StatMinMax,
+    /// SHIFT 2 in CMPLX mode: arg, Conjg, ▸r∠θ, ▸a+bi.
+    Cmplx,
+    /// SETUP: show CMPLX results as a+bi or r∠θ.
+    CmplxFormat,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -41,6 +45,8 @@ pub(crate) enum MenuAction {
     /// CLR: 1 Setup, 2 Memory, 3 All.
     Clear(u8),
     StatEditor,
+    /// CMPLX results in polar (true) or rectangular form.
+    ComplexPolar(bool),
 }
 
 /// An open menu as the display shows it.
@@ -64,7 +70,12 @@ fn entries(id: MenuId, kind: StatKind) -> Vec<(&'static str, MenuAction)> {
     let paired = kind.paired();
     match id {
         MenuId::Mode => {
-            vec![("COMP", Mode(CalcMode::Comp)), ("STAT", Open(MenuId::StatType)), ("TABLE", Mode(CalcMode::Table))]
+            vec![
+                ("COMP", Mode(CalcMode::Comp)),
+                ("CMPLX", Mode(CalcMode::Cmplx)),
+                ("STAT", Open(MenuId::StatType)),
+                ("TABLE", Mode(CalcMode::Table)),
+            ]
         }
         MenuId::StatType => vec![("1-VAR", StatType(StatKind::OneVar)), ("A+BX", StatType(StatKind::Linear))],
         MenuId::Setup => vec![
@@ -81,6 +92,14 @@ fn entries(id: MenuId, kind: StatKind) -> Vec<(&'static str, MenuAction)> {
             ("ab/c", Fraction(FractionStyle::Mixed)),
             ("d/c", Fraction(FractionStyle::Improper)),
             ("STAT", Open(MenuId::StatFreq)),
+            ("CMPLX", Open(MenuId::CmplxFormat)),
+        ],
+        MenuId::CmplxFormat => vec![("a+bi", ComplexPolar(false)), ("r∠θ", ComplexPolar(true))],
+        MenuId::Cmplx => vec![
+            ("arg", Insert(Token::Func(Func::Arg))),
+            ("Conjg", Insert(Token::Func(Func::Conjg))),
+            ("▸r∠θ", Insert(Token::ToPolar)),
+            ("▸a+bi", Insert(Token::ToRect)),
         ],
         MenuId::StatFreq => vec![("ON", StatFreq(true)), ("OFF", StatFreq(false))],
         MenuId::Drg => {
@@ -138,6 +157,7 @@ fn prompt(id: MenuId) -> Option<&'static str> {
 fn title(id: MenuId) -> Option<&'static str> {
     match id {
         MenuId::StatFreq => Some("Frequency?"),
+        MenuId::CmplxFormat => Some("Complex Result?"),
         MenuId::Clr => Some("Clear?"),
         MenuId::Drg => Some("DRG▸"),
         _ => None,

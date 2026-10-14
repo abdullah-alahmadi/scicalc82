@@ -76,6 +76,7 @@ fn draw_indicators(painter: &Painter, view: View, calc: &Calculator) {
         (124.0, angle, true),
         (140.0, format, !format.is_empty()),
         (166.0, "STAT", calc.mode() == CalcMode::Stat),
+        (166.0, "CMPLX", calc.mode() == CalcMode::Cmplx),
         (220.0, "Math", settings.format.natural),
         (260.0, "▲", on_calc && calc.history_len() > 0),
     ];

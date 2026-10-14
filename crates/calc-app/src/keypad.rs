@@ -81,7 +81,7 @@ const UPPER: [[Option<KeySpec>; 6]; 5] = [
         func(Key::Ln, "ln", Some("e^x"), None),
     ],
     [
-        func(Key::Neg, "(−)", None, Some("A")),
+        func(Key::Neg, "(−)", Some("∠"), Some("A")),
         func(Key::Dms, "°′″", None, Some("B")),
         func(Key::Hyp, "hyp", None, Some("C")),
         func(Key::Sin, "sin", Some("sin^−1"), Some("D")),
@@ -116,7 +116,7 @@ const LOWER: [[Option<KeySpec>; 5]; 4] = [
     ],
     [
         num(Key::Digit(1), "1", Some("STAT"), None),
-        num(Key::Digit(2), "2", None, None),
+        num(Key::Digit(2), "2", Some("CMPLX"), None),
         num(Key::Digit(3), "3", None, None),
         num(Key::Plus, "+", Some("Pol"), None),
         num(Key::Minus, "−", Some("Rec"), None),
@@ -244,6 +244,10 @@ fn draw_key(
         let pos = align.anchor_size(anchor, galley.size()).min;
         painter.galley(pos, galley, color);
     };
+    // In CMPLX mode ENG types i; marked in purple like the device's mode legends.
+    if spec.key == Key::Eng {
+        legend("i", pos2(rect.right() + view.len(2.0), legend_y), Align2::RIGHT_BOTTOM, theme::CMPLX_LEGEND);
+    }
     match (spec.shift, spec.alpha) {
         (Some(s), Some(a)) => {
             legend(s, pos2(rect.left() - view.len(2.0), legend_y), Align2::LEFT_BOTTOM, theme::SHIFT_LEGEND);

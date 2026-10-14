@@ -44,6 +44,7 @@ fn press_script(calc: &mut Calculator, script: &str) {
             "ans" => Key::Ans,
             "exp" => Key::Exp10,
             "mode" => Key::Mode,
+            "eng" => Key::Eng,
             "left" => Key::Left,
             "right" => Key::Right,
             "up" => Key::Up,
@@ -56,6 +57,9 @@ fn press_script(calc: &mut Calculator, script: &str) {
 
 const SCENES: &[(&str, &str)] = &[
     ("natural", "1 frac 3 right + sqrt 1 frac 2 ="),
+    ("cmplx_rect", "mode 2 ( 3 + 4 eng ) / ( 1 + 2 eng ) ="),
+    ("cmplx_polar", "mode 2 1 + eng S 2 3 ="),
+    ("cmplx_menu", "mode 2 S 2"),
     ("sine", "sin 30 ="),
     ("mode_menu", "mode"),
     ("setup_menu", "S mode"),
@@ -64,15 +68,15 @@ const SCENES: &[(&str, &str)] = &[
     ("drg_menu", "S ans"),
     ("line_io", "S mode 2 1 frac 2 + 1 frac 3 ="),
     ("dms", "2 . 258 = dms"),
-    ("stat_editor", "mode 2 2 1 = 2 = 3 = 4 = up up up up right 3 = 5 = 7 . 5 ="),
-    ("stat_menu", "mode 2 2 1 = ac S 1"),
-    ("stat_var_menu", "mode 2 2 1 = ac S 1 4"),
-    ("stat_mean", "mode 2 1 1 = 2 = 3 = 4 = ac S 1 4 2 ="),
-    ("stat_estimate", "mode 2 2 1 = 2 = 3 = up up up right 3 = 5 = 7 = ac 10 S 1 5 5 ="),
-    ("table_function", "mode 3 A ) sq + 1"),
-    ("table_range", "mode 3 A ) sq + 1 ="),
-    ("table_view", "mode 3 A ) sq + 1 = = = = down"),
-    ("table_error", "mode 3 A ) = 1 = 100 = ="),
+    ("stat_editor", "mode 3 2 1 = 2 = 3 = 4 = up up up up right 3 = 5 = 7 . 5 ="),
+    ("stat_menu", "mode 3 2 1 = ac S 1"),
+    ("stat_var_menu", "mode 3 2 1 = ac S 1 4"),
+    ("stat_mean", "mode 3 1 1 = 2 = 3 = 4 = ac S 1 4 2 ="),
+    ("stat_estimate", "mode 3 2 1 = 2 = 3 = up up up right 3 = 5 = 7 = ac 10 S 1 5 5 ="),
+    ("table_function", "mode 4 A ) sq + 1"),
+    ("table_range", "mode 4 A ) sq + 1 ="),
+    ("table_view", "mode 4 A ) sq + 1 = = = = down"),
+    ("table_error", "mode 4 A ) = 1 = 100 = ="),
 ];
 
 fn output_dir() -> PathBuf {

@@ -6,10 +6,11 @@
 //! 3. LineIO fractions: `a⌟b`, `a⌟b⌟c`
 //! 4. prefix signs: `(−)`, and `−`/`+` where an operand is expected
 //! 5. regression estimates `x̂`, `ŷ`
-//! 6. multiplication with the sign omitted (`2π`, `3sin(30)`, `2(1+1)`)
-//! 7. nPr, nCr
-//! 8. ×, ÷
-//! 9. +, −
+//! 6. multiplication with the sign omitted (`2π`, `3sin(30)`, `2(1+1)`, `3i`)
+//! 7. `∠` between a modulus and an angle (CMPLX mode)
+//! 8. nPr, nCr
+//! 9. ×, ÷
+//! 10. +, −
 //!
 //! Because 6 binds tighter than 8, `1÷2π` means `1÷(2π)`, as on school
 //! calculators. Missing closing parentheses are added at the end of a row.
@@ -28,6 +29,27 @@ pub fn parse(row: &Row) -> Result<Expr, LocatedError> {
     let expr = Parser::new(&row.items, Vec::new(), 0).parse_all()?;
     check_statements(&expr, true)?;
     Ok(expr)
+}
+
+/// How a CMPLX result should be shown, from a trailing ▸r∠θ or ▸a+bi.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ComplexForm {
+    Rect,
+    Polar,
+}
+
+/// Parses a calculation line, which may end in ▸r∠θ or ▸a+bi to choose how
+/// a complex result is shown. Anywhere else those are a Syntax ERROR.
+pub fn parse_statement(row: &Row) -> Result<(Expr, Option<ComplexForm>), LocatedError> {
+    let form = match row.items.last() {
+        Some(Item::Token(Token::ToPolar)) => Some(ComplexForm::Polar),
+        Some(Item::Token(Token::ToRect)) => Some(ComplexForm::Rect),
+        _ => None,
+    };
+    let items = if form.is_some() { &row.items[..row.items.len() - 1] } else { &row.items[..] };
+    let expr = Parser::new(items, Vec::new(), 0).parse_all()?;
+    check_statements(&expr, true)?;
+    Ok((expr, form))
 }
 
 fn check_statements(expr: &Expr, top: bool) -> Result<(), LocatedError> {
@@ -123,9 +145,17 @@ impl<'a> Parser<'a> {
     }
 
     fn permutation(&mut self) -> PResult<Expr> {
-        self.binary_loop(Self::implicit, |t| match t {
+        self.binary_loop(Self::polar, |t| match t {
             Token::Perm => Some(BinaryOp::Perm),
             Token::Comb => Some(BinaryOp::Comb),
+            _ => None,
+        })
+    }
+
+    /// `r∠θ`: binds looser than implied multiplication, so `√2∠45` and `2∠−30` work.
+    fn polar(&mut self) -> PResult<Expr> {
+        self.binary_loop(Self::implicit, |t| match t {
+            Token::Angle => Some(BinaryOp::Polar),
             _ => None,
         })
     }
@@ -145,6 +175,7 @@ impl<'a> Parser<'a> {
                     | Token::Ran
                     | Token::Var(_)
                     | Token::Stat(_)
+                    | Token::Imag
             ),
             Some(Item::Template(t)) => t.kind != TemplateKind::Power,
             None => false,
@@ -276,6 +307,7 @@ impl<'a> Parser<'a> {
             Token::Ran => ExprKind::Ran,
             Token::Var(v) => ExprKind::Var(v),
             Token::Stat(v) => ExprKind::Stat(v),
+            Token::Imag => ExprKind::Imag,
             _ => return Err(self.error(CalcError::Syntax)),
         };
         self.pos += 1;

@@ -1,7 +1,7 @@
 //! The display tree, built from the input tree or from a formatted result.
 
 use calc_core::calculator::ResultLine;
-use calc_core::format::{Formatted, SurdTermText};
+use calc_core::format::{ComplexText, Formatted, SurdTermText};
 use calc_core::input::{Cursor, Func, Item, Row, SlotRef, Template, TemplateKind, Token};
 use calc_core::stats::StatVar;
 
@@ -295,6 +295,25 @@ pub fn formatted_nodes(f: &Formatted, natural: bool) -> Vec<Node> {
             out.extend(over(num, p.den));
         }
         Formatted::Dms(d) => out.push(text(d.to_string())),
+        Formatted::Complex(ComplexText::Rect { re, im_negative, im }) => {
+            if let Some(re) = re {
+                out.extend(formatted_nodes(re, natural));
+            }
+            match (im_negative, re) {
+                (true, _) => out.push(text("−")),
+                (false, Some(_)) => out.push(text("+")),
+                (false, None) => {}
+            }
+            if let Some(im) = im {
+                out.extend(formatted_nodes(im, natural));
+            }
+            out.push(text("i"));
+        }
+        Formatted::Complex(ComplexText::Polar { r, theta }) => {
+            out.extend(formatted_nodes(r, natural));
+            out.push(text("∠"));
+            out.extend(formatted_nodes(theta, natural));
+        }
     }
     out
 }
@@ -396,6 +415,20 @@ mod tests {
         }
         let nodes = input_nodes(ed.root(), None);
         assert_eq!(nodes, vec![accent("x", false), t("2"), accent("y", true)]);
+    }
+
+    #[test]
+    fn complex_results() {
+        use calc_core::format::{format_polar, format_rect};
+        let settings = FormatSettings::default();
+        let half = Value::rational(calc_core::value::Rational::new(1, 2).unwrap());
+        let rect = format_rect(&Value::integer(1), &half.neg().unwrap(), &settings, ResultForm::Standard);
+        let frac_half = Node::Frac(vec![t("1")], vec![t("2")]);
+        assert_eq!(formatted_nodes(&rect, true), vec![t("1"), t("−"), frac_half, t("i")]);
+        let unit = format_rect(&Value::zero(), &Value::integer(1), &settings, ResultForm::Standard);
+        assert_eq!(formatted_nodes(&unit, true), vec![t("i")]);
+        let polar = format_polar(&Value::integer(2), &Value::integer(30), &settings, ResultForm::Standard);
+        assert_eq!(formatted_nodes(&polar, true), vec![t("2"), t("∠"), t("30")]);
     }
 
     #[test]

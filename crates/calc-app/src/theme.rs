@@ -29,6 +29,7 @@ pub const KEY_TEXT_LIGHT: Color32 = Color32::from_rgb(0xf2, 0xf3, 0xf5);
 pub const KEY_TEXT_DARK: Color32 = Color32::from_rgb(0x1f, 0x22, 0x27);
 pub const SHIFT_LEGEND: Color32 = Color32::from_rgb(0xe6, 0xb4, 0x22);
 pub const ALPHA_LEGEND: Color32 = Color32::from_rgb(0xef, 0x5b, 0x55);
+pub const CMPLX_LEGEND: Color32 = Color32::from_rgb(0xb4, 0x8e, 0xf0);
 pub const PAD: Color32 = Color32::from_rgb(0x55, 0x5c, 0x68);
 pub const PAD_ARROW: Color32 = Color32::from_rgb(0xdd, 0xe0, 0xe5);
 

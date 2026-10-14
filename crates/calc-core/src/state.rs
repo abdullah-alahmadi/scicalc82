@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::format::FormatSettings;
 use crate::input::Var;
-use crate::value::Value;
+use crate::number::Number;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AngleUnit {
@@ -19,6 +19,8 @@ pub enum AngleUnit {
 pub enum CalcMode {
     #[default]
     Comp,
+    /// Complex numbers: i, ∠, and complex results.
+    Cmplx,
     Stat,
     Table,
 }
@@ -30,27 +32,31 @@ pub struct Settings {
     pub format: FormatSettings,
     /// Whether the STAT editor has a FREQ column.
     pub stat_freq: bool,
+    /// CMPLX results in polar form r∠θ rather than a+bi.
+    #[serde(default)]
+    pub complex_polar: bool,
 }
 
-/// Ans plus the variables A–F, X, Y and the independent memory M.
+/// Ans plus the variables A–F, X, Y and the independent memory M. In CMPLX
+/// mode these can hold complex numbers.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Memory {
-    vars: [Value; 9],
-    pub ans: Value,
+    vars: [Number; 9],
+    pub ans: Number,
 }
 
 impl Default for Memory {
     fn default() -> Self {
-        Self { vars: std::array::from_fn(|_| Value::zero()), ans: Value::zero() }
+        Self { vars: std::array::from_fn(|_| Number::zero()), ans: Number::zero() }
     }
 }
 
 impl Memory {
-    pub fn get(&self, var: Var) -> &Value {
+    pub fn get(&self, var: Var) -> &Number {
         &self.vars[var as usize]
     }
 
-    pub fn set(&mut self, var: Var, value: Value) {
+    pub fn set(&mut self, var: Var, value: Number) {
         self.vars[var as usize] = value;
     }
 }
