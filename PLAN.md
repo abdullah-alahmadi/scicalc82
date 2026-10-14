@@ -46,7 +46,7 @@ Calculator/
 │  └─ calc-app/               # eframe binary
 │     ├─ main.rs
 │     ├─ app.rs               # eframe::App, wires keys -> core, core -> drawing
-│     ├─ layout/              # 2D math layout: boxes with width/ascent/descent
+│     ├─ math/                # natural display: display tree, box layout, egui painter
 │     ├─ widgets/lcd.rs       # LCD panel, indicator row, blinking cursor, scrolling
 │     ├─ widgets/keypad.rs    # body + keys with SHIFT (yellow) / ALPHA (red) legends
 │     ├─ keymap.rs            # PC keyboard -> Key
@@ -90,7 +90,7 @@ Stretch goals for later: CALC/SOLVE, a WASM web build, alternate skins, an advan
 | 2 ✅ | **Input tree + editor:** templates, cursor movement, insert/DEL | Editor tests cover slot navigation |
 | 3 ✅ | **Parser + evaluator:** precedence, functions, angle modes, exact trig, Ans, memory | Keystroke-sequence tests produce the expected device results |
 | 4 ✅ | **UI shell:** calculator body, keypad, SHIFT/ALPHA, keyboard map, LCD with a linear preview | A usable calculator, drawn linearly |
-| 5 | **Natural display renderer:** box layout, fraction bars, radicals, superscripts, cursor, scrolling | Display looks like MathIO |
+| 5 ✅ | **Natural display renderer:** box layout, fraction bars, radicals, superscripts, cursor, scrolling | Display looks like MathIO |
 | 6 | **SETUP, STAT, TABLE modes**, history replay, error screens | Feature checklist complete |
 | 7 | Polish: persistence, scaling/HiDPI, app icon, release build (optional WASM) | v1.0 |
 

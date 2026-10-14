@@ -4,7 +4,7 @@ mod app;
 mod keymap;
 mod keypad;
 mod lcd;
-mod linear;
+mod math;
 mod rich;
 mod theme;
 

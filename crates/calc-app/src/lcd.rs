@@ -1,20 +1,23 @@
 //! The display: status indicators, the input line and the result line.
 
 use calc_core::calculator::{Pending, Phase, ResultLine};
-use calc_core::format::{FormatSettings, Formatted, NumberFormat};
+use calc_core::format::{FormatSettings, NumberFormat};
 use calc_core::input::Var;
 use calc_core::key::Modifier;
 use calc_core::state::AngleUnit;
 use calc_core::{CalcError, Calculator};
-use eframe::egui::{Align2, Painter, Stroke, pos2, vec2};
+use eframe::egui::{Align2, Painter, vec2};
 
-use crate::linear;
-use crate::rich::{self, Script, Span};
+use crate::math::layout::{CursorBar, layout};
+use crate::math::nodes::{input_nodes, result_nodes};
+use crate::math::paint::{EguiMeasure, paint, paint_cursor};
 use crate::theme::{self, View};
 
-const INPUT_SIZE: f32 = 19.0;
-const RESULT_SIZE: f32 = 24.0;
-const MIN_RESULT_SIZE: f32 = 13.0;
+const INPUT_SIZE: f32 = 17.0;
+/// Height of the input area in design units; the result area fills the rest.
+const INPUT_HEIGHT: f32 = 48.0;
+const RESULT_SIZE: f32 = 20.0;
+const MIN_RESULT_SIZE: f32 = 11.0;
 const INDICATOR_SIZE: f32 = 9.5;
 
 /// The glass area in design coordinates.
@@ -33,7 +36,7 @@ pub fn draw(painter: &Painter, view: View, calc: &Calculator, cursor_visible: bo
         return;
     }
     let editing = matches!(calc.phase(), Phase::Editing);
-    draw_input(&painter, view, calc, editing && cursor_visible);
+    draw_input(&painter, view, calc, editing, cursor_visible);
     match calc.pending() {
         Pending::DrgMenu => draw_menu(&painter, view, "1:°   2:r   3:g"),
         Pending::ClrMenu => draw_menu(&painter, view, "CLR 1:Setup 2:Mem 3:All"),
@@ -83,74 +86,57 @@ fn draw_indicators(painter: &Painter, view: View, calc: &Calculator) {
     }
 }
 
-fn draw_input(painter: &Painter, view: View, calc: &Calculator, show_cursor: bool) {
+fn measure<'a>(painter: &'a Painter, view: View) -> EguiMeasure<'a> {
+    EguiMeasure { painter, scale: view.len(1.0) }
+}
+
+/// Draws the input. While editing it scrolls to follow the cursor; otherwise
+/// (a result is showing) it shows the start of the expression.
+fn draw_input(painter: &Painter, view: View, calc: &Calculator, editing: bool, cursor_visible: bool) {
     let (gx, gy, gw, _) = GLASS;
-    let area = view.rect(gx + 6.0, gy + 20.0, gw - 12.0, 30.0);
+    let area = view.rect(gx + 6.0, gy + 15.0, gw - 12.0, INPUT_HEIGHT);
     let editor = calc.editor();
-    let line = linear::line(editor.root(), Some(editor.cursor()));
-    let font = view.lcd_font(INPUT_SIZE);
-    let before = rich::layout(painter, &line.before, &font, theme::LCD_INK);
-    let all: Vec<Span> = line.before.iter().chain(&line.after).cloned().collect();
-    let full = rich::layout(painter, &all, &font, theme::LCD_INK);
+    let nodes = input_nodes(editor.root(), editing.then(|| editor.cursor()));
+    let laid = layout(&nodes, INPUT_SIZE, &measure(painter, view));
+    let scale = view.len(1.0);
 
-    // Scroll horizontally so the cursor stays in view.
-    let cursor_x = before.size().x;
-    let margin = view.len(10.0);
-    let offset = (cursor_x - (area.width() - margin)).max(0.0);
-    let origin = pos2(area.left() - offset, area.center().y - full.size().y / 2.0);
-    painter.with_clip_rect(area).galley(origin, full.clone(), theme::LCD_INK);
+    // Scroll sideways to keep the cursor in view.
+    let cursor = laid.cursor.unwrap_or(CursorBar { x: 0.0, top: -laid.ascent, bottom: 0.0 });
+    let margin = 8.0;
+    let width = area.width() / scale;
+    let offset = (cursor.x - (width - margin)).max(0.0);
 
-    if show_cursor {
-        // Sized from the font rather than the text, which may be empty.
-        let x = origin.x + cursor_x;
-        let half = view.len(INPUT_SIZE) * 0.5;
-        let (top, bottom) = (area.center().y - half, area.center().y + half);
-        painter.line_segment([pos2(x, top), pos2(x, bottom)], Stroke::new(view.len(1.6), theme::LCD_INK));
+    // Top-aligned, unless the expression is taller than the line: then
+    // keep the cursor's row visible.
+    let height = area.height() / scale;
+    let mut baseline = (laid.ascent + 1.0).max(INPUT_SIZE * 1.15);
+    if baseline + laid.descent > height {
+        baseline = baseline.min(height - cursor.bottom - 1.0).max(-cursor.top + 1.0);
     }
-}
-
-fn formatted_spans(f: &Formatted) -> Vec<Span> {
-    match f {
-        Formatted::Decimal(d) => {
-            let sign = if d.negative { "-" } else { "" };
-            let mut spans = vec![Span::new(format!("{sign}{}", d.mantissa), Script::Normal)];
-            if let Some(e) = d.exponent {
-                spans.push(Span::new("×10", Script::Normal));
-                spans.push(Span::new(e.to_string(), Script::Super));
-            }
-            spans
-        }
-        other => vec![Span::new(other.to_string(), Script::Normal)],
+    let origin = area.min + vec2(-offset, baseline) * scale;
+    let clipped = painter.with_clip_rect(area);
+    paint(&clipped, &laid, origin, scale, theme::LCD_INK);
+    if editing && cursor_visible {
+        paint_cursor(&clipped, &laid, origin, scale, theme::LCD_INK);
     }
-}
-
-fn result_spans(lines: &[ResultLine]) -> Vec<Span> {
-    let mut spans = Vec::new();
-    for (i, line) in lines.iter().enumerate() {
-        if i > 0 {
-            spans.push(Span::new(",  ", Script::Normal));
-        }
-        if let Some(label) = line.label {
-            spans.push(Span::new(format!("{label}="), Script::Normal));
-        }
-        spans.extend(formatted_spans(&line.value));
-    }
-    spans
 }
 
 fn draw_result(painter: &Painter, view: View, lines: &[ResultLine]) {
     let (gx, gy, gw, gh) = GLASS;
-    let area = view.rect(gx + 6.0, gy + 56.0, gw - 12.0, gh - 60.0);
-    let spans = result_spans(lines);
-    // Shrink long results (such as Pol/Rec pairs) to fit the line.
+    let top = gy + 15.0 + INPUT_HEIGHT;
+    let area = view.rect(gx + 6.0, top, gw - 12.0, gy + gh - top - 2.0);
+    let scale = view.len(1.0);
+    let (width, height) = (area.width() / scale, area.height() / scale);
+    let nodes = result_nodes(lines);
+    // Shrink long or tall results (such as Pol/Rec pairs) until they fit.
     let mut size = RESULT_SIZE;
-    let mut galley = rich::layout(painter, &spans, &view.lcd_font(size), theme::LCD_INK);
-    while galley.size().x > area.width() && size > MIN_RESULT_SIZE {
+    let mut laid = layout(&nodes, size, &measure(painter, view));
+    while (laid.width > width || laid.ascent + laid.descent > height) && size > MIN_RESULT_SIZE {
         size -= 1.0;
-        galley = rich::layout(painter, &spans, &view.lcd_font(size), theme::LCD_INK);
+        laid = layout(&nodes, size, &measure(painter, view));
     }
-    let pos = pos2(area.right() - galley.size().x, area.center().y - galley.size().y / 2.0);
-    painter.galley(pos, galley, theme::LCD_INK);
+    let origin = area.max - vec2(laid.width, laid.descent) * scale;
+    paint(painter, &laid, origin, scale, theme::LCD_INK);
 }
 
 fn draw_menu(painter: &Painter, view: View, text: &str) {
