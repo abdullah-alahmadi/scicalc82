@@ -45,6 +45,7 @@ fn press_script(calc: &mut Calculator, script: &str) {
             "exp" => Key::Exp10,
             "mode" => Key::Mode,
             "neg" => Key::Neg,
+            "sd" => Key::SToD,
             "eng" => Key::Eng,
             "recip" => Key::Recip,
             "left" => Key::Left,
@@ -96,22 +97,73 @@ fn output_dir() -> PathBuf {
     dir
 }
 
+/// Renders the calculator after `script`, at `scale` pixels per point.
+fn render(script: &str, scale: f32) -> image::RgbaImage {
+    let mut calc = Calculator::new();
+    press_script(&mut calc, script);
+    let mut harness = Harness::builder()
+        .with_size(vec2(theme::DESIGN_W + 20.0, theme::DESIGN_H + 20.0))
+        .with_pixels_per_point(scale)
+        .build_ui(move |ui| {
+            draw_calculator(ui, &calc, None, true);
+        });
+    install_fonts(&harness.ctx);
+    harness.run_steps(3);
+    harness.render().unwrap_or_else(|e| panic!("render {script:?}: {e}"))
+}
+
 #[test]
 #[ignore = "writes PNG files; run explicitly"]
 fn render_screens() {
     let dir = output_dir();
     for (name, script) in SCENES {
-        let mut calc = Calculator::new();
-        press_script(&mut calc, script);
-        let mut harness = Harness::builder()
-            .with_size(vec2(theme::DESIGN_W + 20.0, theme::DESIGN_H + 20.0))
-            .with_pixels_per_point(1.5)
-            .build_ui(move |ui| {
-                draw_calculator(ui, &calc, None, true);
-            });
-        install_fonts(&harness.ctx);
-        harness.run_steps(3);
-        let image = harness.render().unwrap_or_else(|e| panic!("render {name}: {e}"));
-        image.save(dir.join(format!("{name}.png"))).expect("save png");
+        render(script, 1.5).save(dir.join(format!("{name}.png"))).expect("save png");
+    }
+}
+
+/// Screens shown in docs/USER_MANUAL.md: (file name, keys, whole calculator?).
+const MANUAL_IMAGES: &[(&str, &str, bool)] = &[
+    ("overview", "1 frac 3 right + sqrt 1 frac 2 =", true),
+    ("editing", "2 frac 3 right + sqrt 8", false),
+    ("exact_result", "1 frac 3 right + sqrt 1 frac 2 =", false),
+    ("decimal_result", "1 frac 3 right + sqrt 1 frac 2 = sd", false),
+    ("trig", "sin 30 =", false),
+    ("error", "1 / 0 =", false),
+    ("mode_menu", "mode", false),
+    ("setup_menu", "S mode", false),
+    ("dms", "2 . 258 = dms", false),
+    ("cmplx_rect", "mode 2 ( 3 + 4 eng ) / ( 1 + 2 eng ) =", false),
+    ("cmplx_polar", "mode 2 1 + eng S 2 3 =", false),
+    ("stat_editor", "mode 3 2 1 = 2 = 3 = 4 = up up up up right 3 = 5 = 7 . 5 =", false),
+    ("stat_estimate", "mode 3 2 1 = 2 = 3 = up up up right 3 = 5 = 7 = ac 10 S 1 5 5 =", false),
+    ("table_view", "mode 4 A ) sq + 1 = = = = down", false),
+    ("matrix_editor", "mode 5 1 5 1 = 2 = 3 =", false),
+    ("matrix_inverse", "mode 5 1 5 1 = 2 = 3 = 4 = ac S 4 3 recip =", false),
+    ("eqn_menu", "mode 6", false),
+    ("eqn_root", "mode 6 4 1 = 0 = 0 = neg 1 = = =", false),
+];
+
+/// Regenerates the manual's images. Display-only images are cropped to
+/// the LCD and its bezel.
+#[test]
+#[ignore = "rewrites docs/images; run explicitly"]
+fn render_manual_images() {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../docs/images");
+    std::fs::create_dir_all(&dir).expect("create docs/images");
+    // The calculator is drawn at 1:1 design units, offset by the 10-point margin.
+    let (gx, gy, gw, gh) = crate::lcd::GLASS;
+    let margin = 14.0;
+    for (name, script, whole) in MANUAL_IMAGES {
+        let path = dir.join(format!("{name}.png"));
+        if *whole {
+            render(script, 1.25).save(path).expect("save png");
+            continue;
+        }
+        let scale = 1.5;
+        let image = render(script, scale);
+        let px = |v: f32| (v * scale).round() as u32;
+        let (x, y) = (px(10.0 + gx - margin), px(10.0 + gy - margin));
+        let (w, h) = (px(gw + 2.0 * margin), px(gh + 2.0 * margin));
+        image::imageops::crop_imm(&image, x, y, w, h).to_image().save(path).expect("save png");
     }
 }

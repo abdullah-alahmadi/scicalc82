@@ -553,6 +553,7 @@ dependencies = [
  "calc-core",
  "eframe",
  "egui_kittest",
+ "image",
  "serde",
  "wasm-bindgen-futures",
  "winresource",

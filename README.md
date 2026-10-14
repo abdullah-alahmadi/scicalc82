@@ -4,6 +4,8 @@ A desktop scientific calculator written in Rust. It looks and behaves like a cla
 
 The name, look and code are original.
 
+For how to use every key, mode and menu, see the **[User Manual](docs/USER_MANUAL.md)**.
+
 ## Features
 
 - **Natural display:** stacked fractions, real radicals, raised exponents, and a cursor that moves through them. LineIO mode gives a one-line display instead.
@@ -124,3 +126,9 @@ cargo test -p calc-app render_screens -- --ignored
 ```
 
 The images are written to `target/screens/`.
+
+The manual's screenshots in `docs/images/` are generated the same way. Regenerate them after changing the UI:
+
+```bash
+cargo test -p calc-app render_manual_images -- --ignored
+```
