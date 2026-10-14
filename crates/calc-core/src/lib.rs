@@ -1,9 +1,17 @@
 //! UI-independent engine for a school-style scientific calculator.
 
+pub mod ast;
+pub mod calculator;
 pub mod error;
+pub mod eval;
 pub mod format;
 pub mod input;
+pub mod key;
+pub mod parse;
+pub mod state;
 pub mod value;
 
+pub use calculator::Calculator;
 pub use error::{CalcError, CalcResult};
+pub use key::Key;
 pub use value::Value;
