@@ -87,7 +87,7 @@ Stretch goals for later: CALC/SOLVE, a WASM web build, alternate skins, an advan
 |---|---|---|
 | 0 ✅ | Workspace scaffold, `cargo fmt`/`clippy`/`test` passing, `git init` | Empty window opens |
 | 1 ✅ | **Number core:** rational, exact surd/π, decimal fallback, formatter | Unit and property tests pass for arithmetic and display formatting |
-| 2 | **Input tree + editor:** templates, cursor movement, insert/DEL | Editor tests cover slot navigation |
+| 2 ✅ | **Input tree + editor:** templates, cursor movement, insert/DEL | Editor tests cover slot navigation |
 | 3 | **Parser + evaluator:** precedence, functions, angle modes, exact trig, Ans, memory | Keystroke-sequence tests produce the expected device results |
 | 4 | **UI shell:** calculator body, keypad, SHIFT/ALPHA, keyboard map, LCD with a linear preview | A usable calculator, drawn linearly |
 | 5 | **Natural display renderer:** box layout, fraction bars, radicals, superscripts, cursor, scrolling | Display looks like MathIO |
