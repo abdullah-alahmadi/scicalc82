@@ -89,7 +89,7 @@ Stretch goals for later: CALC/SOLVE, a WASM web build, alternate skins, an advan
 | 1 ✅ | **Number core:** rational, exact surd/π, decimal fallback, formatter | Unit and property tests pass for arithmetic and display formatting |
 | 2 ✅ | **Input tree + editor:** templates, cursor movement, insert/DEL | Editor tests cover slot navigation |
 | 3 ✅ | **Parser + evaluator:** precedence, functions, angle modes, exact trig, Ans, memory | Keystroke-sequence tests produce the expected device results |
-| 4 | **UI shell:** calculator body, keypad, SHIFT/ALPHA, keyboard map, LCD with a linear preview | A usable calculator, drawn linearly |
+| 4 ✅ | **UI shell:** calculator body, keypad, SHIFT/ALPHA, keyboard map, LCD with a linear preview | A usable calculator, drawn linearly |
 | 5 | **Natural display renderer:** box layout, fraction bars, radicals, superscripts, cursor, scrolling | Display looks like MathIO |
 | 6 | **SETUP, STAT, TABLE modes**, history replay, error screens | Feature checklist complete |
 | 7 | Polish: persistence, scaling/HiDPI, app icon, release build (optional WASM) | v1.0 |
@@ -103,8 +103,9 @@ Milestones 1–3 are the riskiest and most valuable part. Building them as pure,
 - **Snapshot tests:** layout box trees for natural display expressions (`insta`).
 - **Manual UI checks** against reference photos of the device.
 
-## Open questions (decide by milestone 4–5)
+## UI decisions (milestone 4)
 
-- Exact visual style: a realistic skeuomorphic body, or a flat stylized one?
-- A fixed-size window like the real device, or a resizable window that keeps the aspect ratio?
-- Font choice for the LCD. A dot-matrix look needs a bundled font, such as an open-licensed LCD-style one.
+- **Style:** a stylized, flat take on the device: a dark body, a greenish LCD, SHIFT legends in gold and ALPHA legends in red. Key shapes are simplified.
+- **Window:** resizable. The calculator is laid out in a fixed 360×650 design space and scaled uniformly to fit the window, so it keeps its proportions.
+- **Fonts:** egui's built-in Hack (monospace) for the LCD. It covers √ ∛ ⁻¹ π θ □ ▲ ⇔. Hack is also added as a fallback for key labels. The few glyphs neither font has (ˣ ʳ ᵍ) are drawn as raised text. A dot-matrix LCD font can be bundled later in polish.
+- **Keyboard:** see `keymap.rs`. Hovering over the model name shows the shortcut list.

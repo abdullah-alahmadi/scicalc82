@@ -1,28 +1,27 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod app;
+mod keymap;
+mod keypad;
+mod lcd;
+mod linear;
+mod rich;
+mod theme;
+
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use eframe::egui;
 
-const APP_NAME: &str = "SciCalc 82";
+use app::{APP_NAME, CalcApp};
 
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title(APP_NAME)
-            .with_inner_size([360.0, 680.0])
-            .with_resizable(false),
+            .with_inner_size([theme::DESIGN_W + 20.0, theme::DESIGN_H + 20.0])
+            .with_min_inner_size([240.0, 430.0]),
         ..Default::default()
     };
-    eframe::run_native(APP_NAME, options, Box::new(|_cc| Ok(Box::<CalcApp>::default())))
-}
-
-#[derive(Default)]
-struct CalcApp;
-
-impl eframe::App for CalcApp {
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        egui::CentralPanel::default_margins().show(ui, |ui| {
-            ui.heading(APP_NAME);
-            ui.label("Calculator UI arrives in milestone 4.");
-        });
-    }
+    let seed = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_nanos() as u64);
+    eframe::run_native(APP_NAME, options, Box::new(move |cc| Ok(Box::new(CalcApp::new(cc, seed)))))
 }

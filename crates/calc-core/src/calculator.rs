@@ -110,6 +110,11 @@ impl Calculator {
         &self.memory
     }
 
+    /// How many calculations ▲ can replay.
+    pub fn history_len(&self) -> usize {
+        self.history.len()
+    }
+
     pub fn error(&self) -> Option<CalcError> {
         match &self.phase {
             Phase::Error(e) => Some(e.error),
