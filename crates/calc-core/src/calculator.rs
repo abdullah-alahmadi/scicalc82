@@ -8,6 +8,7 @@ use crate::error::{CalcError, CalcResult};
 use crate::eval::{Env, Outcome, evaluate};
 use crate::format::{
     Formatted, ResultForm, format_dms, format_eng, format_matrix, format_polar, format_rect, format_value,
+    format_vector,
 };
 use crate::input::{Cursor, Editor, Func, Item, Row, TemplateKind, Token, Var};
 use crate::key::{Action, Key, Modifier, action, hyperbolic, var_for_key};
@@ -19,6 +20,7 @@ use crate::state::{CalcMode, Memory, Rng, Settings};
 use crate::stats::StatData;
 use crate::table::{Table, TableRow, TableStage, x_values};
 use crate::value::Value;
+use crate::vector::{VctId, Vector, Vectors};
 
 /// Calculations kept for ▲/▼ replay.
 pub const MAX_HISTORY: usize = 30;
@@ -105,10 +107,27 @@ pub enum EqnView {
     Error(CalcError),
 }
 
-/// The matrix being edited, its highlighted cell, and the value being typed.
+/// A matrix or vector, for the cell editor.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ArrayId {
+    Matrix(MatId),
+    Vector(VctId),
+}
+
+impl ArrayId {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Matrix(m) => m.name(),
+            Self::Vector(v) => v.name(),
+        }
+    }
+}
+
+/// The matrix or vector being edited, its highlighted cell, and the value
+/// being typed. (A vector is edited as a single row.)
 #[derive(Clone, Debug)]
 pub struct MatrixEditor {
-    pub id: MatId,
+    pub id: ArrayId,
     pub row: usize,
     pub col: usize,
     pub input: Editor,
@@ -117,14 +136,14 @@ pub struct MatrixEditor {
 }
 
 impl MatrixEditor {
-    fn new(id: MatId) -> Self {
+    fn new(id: ArrayId) -> Self {
         Self { id, row: 0, col: 0, input: Editor::new(), error: None }
     }
 }
 
 impl Default for MatrixEditor {
     fn default() -> Self {
-        Self::new(MatId::A)
+        Self::new(ArrayId::Matrix(MatId::A))
     }
 }
 
@@ -171,6 +190,7 @@ pub struct Calculator {
     stat_editor: StatEditor,
     table: Table,
     matrices: Matrices,
+    vectors: Vectors,
     matrix_editor: MatrixEditor,
     equations: Equations,
     eqn_editor: EqnEditor,
@@ -193,6 +213,8 @@ pub struct Snapshot {
     pub matrices: Matrices,
     #[serde(default)]
     pub equations: Equations,
+    #[serde(default)]
+    pub vectors: Vectors,
 }
 
 /// The tokens a template key types in LineIO, which has no templates.
@@ -260,6 +282,7 @@ impl Calculator {
             table_step: self.table.step.clone(),
             matrices: self.matrices.clone(),
             equations: self.equations.clone(),
+            vectors: self.vectors.clone(),
         }
     }
 
@@ -275,6 +298,7 @@ impl Calculator {
         calc.table.step = snapshot.table_step;
         calc.matrices = snapshot.matrices;
         calc.equations = snapshot.equations;
+        calc.vectors = snapshot.vectors;
         calc.set_mode(snapshot.mode);
         // MATRIX and EQN modes start on their screens, not their prompts.
         calc.menu = None;
@@ -342,8 +366,26 @@ impl Calculator {
         &self.matrices
     }
 
+    pub fn vectors(&self) -> &Vectors {
+        &self.vectors
+    }
+
     pub fn matrix_editor(&self) -> &MatrixEditor {
         &self.matrix_editor
+    }
+
+    /// The cells of a matrix or vector (a vector as one row), if defined.
+    pub fn array_cells(&self, id: ArrayId) -> Option<Vec<Vec<Value>>> {
+        match id {
+            ArrayId::Matrix(m) => {
+                let m = self.matrices.slot(m).as_ref()?;
+                Some((0..m.rows()).map(|r| (0..m.cols()).map(|c| m.get(r, c).clone()).collect()).collect())
+            }
+            ArrayId::Vector(v) => {
+                let v = self.vectors.slot(v).as_ref()?;
+                Some(vec![(0..v.dim()).map(|i| v.get(i).clone()).collect()])
+            }
+        }
     }
 
     pub fn equations(&self) -> &Equations {
@@ -425,6 +467,9 @@ impl Calculator {
             Outcome::Rect { x, y } => vec![line(Some("X"), x), line(Some("Y"), y)],
             Outcome::Matrix(m) => {
                 vec![ResultLine { label: None, value: format_matrix(m, &self.settings.format, view.form) }]
+            }
+            Outcome::Vector(v) => {
+                vec![ResultLine { label: None, value: format_vector(v, &self.settings.format, view.form) }]
             }
         })
     }
@@ -542,7 +587,18 @@ impl Calculator {
             MenuAction::ComplexPolar(polar) => self.settings.complex_polar = polar,
             MenuAction::DefineMatrix(id, rows, cols) => {
                 *self.matrices.slot_mut(id) = Matrix::zeros(rows, cols);
-                self.open_matrix_editor(id);
+                self.open_matrix_editor(ArrayId::Matrix(id));
+            }
+            MenuAction::DefineVector(id, dim) => {
+                *self.vectors.slot_mut(id) = Vector::zeros(dim);
+                self.open_matrix_editor(ArrayId::Vector(id));
+            }
+            MenuAction::EditVector(id) => {
+                if self.vectors.slot(id).is_some() {
+                    self.open_matrix_editor(ArrayId::Vector(id));
+                } else {
+                    self.menu = Some(MenuId::VctDim(id));
+                }
             }
             MenuAction::EqnType(kind) => {
                 if self.equations.kind() != kind {
@@ -554,7 +610,7 @@ impl Calculator {
             }
             MenuAction::EditMatrix(id) => {
                 if self.matrices.slot(id).is_some() {
-                    self.open_matrix_editor(id);
+                    self.open_matrix_editor(ArrayId::Matrix(id));
                 } else {
                     self.menu = Some(MenuId::MatDim { id, more: false });
                 }
@@ -570,6 +626,11 @@ impl Calculator {
             // Like the device, MATRIX mode starts by asking which matrix to set up.
             CalcMode::Matrix => {
                 self.menu = Some(MenuId::MatSelect { define: true });
+                Screen::Calc
+            }
+            // Like MATRIX, VECTOR mode starts by asking which vector to set up.
+            CalcMode::Vector => {
+                self.menu = Some(MenuId::VctSelect { define: true });
                 Screen::Calc
             }
             // EQN mode asks for the equation type, then edits its coefficients.
@@ -707,6 +768,11 @@ impl Calculator {
                     self.open_menu(MenuId::Matrix);
                 }
             }
+            Action::VectorMenu => {
+                if self.mode == CalcMode::Vector {
+                    self.open_menu(MenuId::Vector);
+                }
+            }
             Action::Mode | Action::Setup | Action::DrgMenu | Action::ClrMenu | Action::Nothing => {}
         }
     }
@@ -793,6 +859,7 @@ impl Calculator {
         if choice != 1 {
             self.memory = Memory::default();
             self.matrices = Matrices::default();
+            self.vectors = Vectors::default();
         }
         if choice == 3 {
             self.history.clear();
@@ -843,14 +910,23 @@ impl Calculator {
         let stats = (self.mode == CalcMode::Stat).then_some(&self.stats);
         let complex = self.mode == CalcMode::Cmplx;
         let matrices = (self.mode == CalcMode::Matrix).then_some(&self.matrices);
-        let mut env =
-            Env { settings: &self.settings, memory: &self.memory, rng: &mut self.rng, stats, complex, matrices };
+        let vectors = (self.mode == CalcMode::Vector).then_some(&self.vectors);
+        let mut env = Env {
+            settings: &self.settings,
+            memory: &self.memory,
+            rng: &mut self.rng,
+            stats,
+            complex,
+            matrices,
+            vectors,
+        };
         let result = parse_statement(&row)
             .and_then(|(expr, complex_form)| evaluate(&expr, &mut env).map(|outcome| (outcome, complex_form)));
         match result {
             Ok((outcome, complex_form)) => {
                 match &outcome {
                     Outcome::Matrix(m) => self.matrices.ans = Some(m.clone()),
+                    Outcome::Vector(v) => self.vectors.ans = Some(v.clone()),
                     other => self.memory.ans = other.primary().expect("non-matrix outcomes have a number"),
                 }
                 if self.history.len() == MAX_HISTORY {
@@ -910,6 +986,7 @@ impl Calculator {
             stats: None,
             complex: false,
             matrices: None,
+            vectors: None,
         };
         let outcome = parse(row).and_then(|expr| evaluate(&expr, &mut env)).map_err(|e| e.error)?;
         outcome.primary().ok_or(CalcError::Math)?.into_real()
@@ -967,7 +1044,7 @@ impl Calculator {
 
     // ---- Matrix editor ----
 
-    fn open_matrix_editor(&mut self, id: MatId) {
+    fn open_matrix_editor(&mut self, id: ArrayId) {
         self.matrix_editor = MatrixEditor::new(id);
         self.screen = Screen::MatrixEditor;
     }
@@ -976,11 +1053,10 @@ impl Calculator {
         if self.matrix_editor.error.take().is_some() {
             return;
         }
-        let Some(m) = self.matrices.slot(self.matrix_editor.id) else {
+        let Some((rows, cols)) = self.array_size(self.matrix_editor.id) else {
             self.screen = Screen::Calc;
             return;
         };
-        let (rows, cols) = (m.rows(), m.cols());
         let natural = self.settings.format.natural;
         let typing = !self.matrix_editor.input.is_empty();
         let ed = &mut self.matrix_editor;
@@ -995,8 +1071,17 @@ impl Calculator {
             Action::Down if !typing => ed.row = (ed.row + 1).min(rows - 1),
             Action::Left if !typing => ed.col = ed.col.saturating_sub(1),
             Action::Right if !typing => ed.col = (ed.col + 1).min(cols - 1),
-            Action::MatrixMenu => self.open_menu(MenuId::Matrix),
+            Action::MatrixMenu if matches!(ed.id, ArrayId::Matrix(_)) => self.open_menu(MenuId::Matrix),
+            Action::VectorMenu if matches!(ed.id, ArrayId::Vector(_)) => self.open_menu(MenuId::Vector),
             other => edit(&mut ed.input, other, natural),
+        }
+    }
+
+    /// (rows, columns) of a matrix or vector, if it is defined.
+    fn array_size(&self, id: ArrayId) -> Option<(usize, usize)> {
+        match id {
+            ArrayId::Matrix(m) => self.matrices.slot(m).as_ref().map(|m| (m.rows(), m.cols())),
+            ArrayId::Vector(v) => self.vectors.slot(v).as_ref().map(|v| (1, v.dim())),
         }
     }
 
@@ -1009,13 +1094,25 @@ impl Calculator {
         let row = self.matrix_editor.input.root().clone();
         match self.evaluate_input(&row) {
             Ok(value) => {
+                let id = self.matrix_editor.id;
+                let Some((rows, cols)) = self.array_size(id) else { return };
                 let ed = &mut self.matrix_editor;
-                let Some(m) = self.matrices.slot_mut(ed.id) else { return };
-                m.set(ed.row, ed.col, value);
+                match id {
+                    ArrayId::Matrix(m) => {
+                        if let Some(m) = self.matrices.slot_mut(m) {
+                            m.set(ed.row, ed.col, value);
+                        }
+                    }
+                    ArrayId::Vector(v) => {
+                        if let Some(v) = self.vectors.slot_mut(v) {
+                            v.set(ed.col, value);
+                        }
+                    }
+                }
                 ed.input.clear();
-                if ed.col + 1 < m.cols() {
+                if ed.col + 1 < cols {
                     ed.col += 1;
-                } else if ed.row + 1 < m.rows() {
+                } else if ed.row + 1 < rows {
                     ed.row += 1;
                     ed.col = 0;
                 }
@@ -1187,6 +1284,7 @@ impl Calculator {
                 stats: None,
                 complex: false,
                 matrices: None,
+                vectors: None,
             };
             let fx = evaluate(&expr, &mut env)
                 .map_err(|e| e.error)
@@ -1764,6 +1862,99 @@ mod tests {
         assert_eq!(calc.mode(), CalcMode::Matrix);
         assert!(calc.menu().is_none(), "restored MATRIX mode starts on the calculation screen");
         assert_eq!(calc.matrices().get(MatId::B).unwrap(), &Matrix::identity(2).unwrap());
+    }
+
+    /// VECTOR mode with VctA = (1, 2, 3), VctB = (4, 5, 6) and VctC = (1, 0).
+    /// MODE 7 asks which vector to size; 1 is 3D and 2 is 2D.
+    fn vector_session() -> Calculator {
+        run("mode 7 1 1 1 = 2 = 3 = ac S 5 1 2 1 4 = 5 = 6 = ac S 5 1 3 2 1 = 0 = ac")
+    }
+
+    fn vector(script: &str) -> String {
+        let mut calc = vector_session();
+        keys(&mut calc, script);
+        calc.result_text().unwrap_or_else(|| panic!("no result for {script:?}: {:?}", calc.phase()))
+    }
+
+    #[test]
+    fn defining_vectors() {
+        let calc = vector_session();
+        assert_eq!(calc.mode(), CalcMode::Vector);
+        assert_eq!(calc.screen(), Screen::Calc);
+        assert_eq!(calc.vectors().get(VctId::C).unwrap().dim(), 2);
+        // SHIFT 5 3 types VctA.
+        assert_eq!(vector("S 5 3 ="), "[1, 2, 3]");
+        // Data (SHIFT 5 2) reopens a vector to change a component.
+        assert_eq!(vector("S 5 2 1 right 0 = ac S 5 3 ="), "[1, 0, 3]");
+    }
+
+    #[test]
+    fn vector_arithmetic() {
+        assert_eq!(vector("S 5 3 + S 5 4 ="), "[5, 7, 9]");
+        assert_eq!(vector("S 5 3 - S 5 4 ="), "[-3, -3, -3]");
+        assert_eq!(vector("2 S 5 3 ="), "[2, 4, 6]");
+        assert_eq!(vector("S 5 3 / 2 ="), "[1/2, 1, 3/2]");
+        assert_eq!(vector("neg S 5 3 ="), "[-1, -2, -3]");
+        // · is the dot product; × between vectors is the cross product.
+        assert_eq!(vector("S 5 3 S 5 7 S 5 4 ="), "32");
+        assert_eq!(vector("S 5 3 * S 5 4 ="), "[-3, 6, -3]");
+        assert_eq!(vector("abs S 5 3 ="), "√14");
+        // Vector results become VctAns; numbers become Ans.
+        let mut calc = vector_session();
+        keys(&mut calc, "S 5 3 + S 5 4 = S 5 6 * 2 =");
+        assert_eq!(calc.result_text().unwrap(), "[10, 14, 18]");
+        keys(&mut calc, "S 5 3 S 5 7 S 5 3 =");
+        assert_eq!(calc.memory().ans, Number::Real(Value::integer(14)));
+    }
+
+    #[test]
+    fn vector_angles_and_2d_cross() {
+        // VctA = (1, 0) and VctB = (1, 1).
+        let mut calc = run("mode 7 1 2 1 = 0 = ac S 5 1 2 2 1 = 1 = ac");
+        keys(&mut calc, "S 5 8 S 5 3 S ) S 5 4 ) =");
+        assert_eq!(calc.result_text().unwrap(), "45");
+        keys(&mut calc, "S 5 3 * S 5 4 =");
+        assert_eq!(calc.result_text().unwrap(), "[0, 0, 1]");
+        // A zero vector has no direction.
+        keys(&mut calc, "S 5 8 S 5 3 S ) 0 S 5 4 ) =");
+        assert_eq!(calc.error(), Some(CalcError::Math));
+    }
+
+    #[test]
+    fn vector_errors() {
+        let error_of = |script: &str| {
+            let mut calc = vector_session();
+            keys(&mut calc, script);
+            calc.error().unwrap_or_else(|| panic!("no error for {script:?}"))
+        };
+        assert_eq!(error_of("S 5 3 + S 5 5 ="), CalcError::Dimension);
+        assert_eq!(error_of("S 5 3 S 5 7 S 5 5 ="), CalcError::Dimension);
+        assert_eq!(error_of("S 5 3 + 1 ="), CalcError::Math);
+        assert_eq!(error_of("S 5 3 S 5 7 2 ="), CalcError::Math);
+        assert_eq!(error_of("2 S 5 7 3 ="), CalcError::Math);
+        assert_eq!(error_of("S 5 4 / S 5 3 ="), CalcError::Math);
+        assert_eq!(error_of("sin S 5 3 ) ="), CalcError::Math);
+        assert_eq!(error_of("ac S 5 6 ="), CalcError::Dimension); // no VctAns yet
+        let calc = run("mode 7 1 1 ac S 5 4 =");
+        assert_eq!(calc.error(), Some(CalcError::Dimension)); // VctB not defined
+    }
+
+    #[test]
+    fn vectors_only_in_vector_mode() {
+        assert!(run("S 5").menu().is_none());
+        assert_eq!(result("S 5 1 ="), "1");
+        assert!(matrix_session().menu().is_none());
+        let mut calc = matrix_session();
+        keys(&mut calc, "S 5");
+        assert!(calc.menu().is_none(), "SHIFT 5 does nothing in MATRIX mode");
+        let calc = Calculator::restore(ron::from_str(&ron::to_string(&vector_session().snapshot()).unwrap()).unwrap());
+        assert_eq!(calc.mode(), CalcMode::Vector);
+        assert!(calc.menu().is_none(), "restored VECTOR mode starts on the calculation screen");
+        assert_eq!(calc.vectors().get(VctId::B).unwrap().get(2), &Value::integer(6));
+        // CLR All forgets them.
+        let mut calc = vector_session();
+        keys(&mut calc, "S 9 3 = ac mode 7 ac");
+        assert!(calc.vectors().slot(VctId::A).is_none());
     }
 
     /// Shows each solution in turn: `label=value`, pressing = between them.

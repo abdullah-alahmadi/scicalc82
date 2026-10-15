@@ -13,6 +13,7 @@ use crate::number::Number;
 use crate::state::{AngleUnit, Memory, Rng, Settings};
 use crate::stats::StatData;
 use crate::value::{Rational, Value};
+use crate::vector::{VctId, Vector, Vectors};
 
 /// Largest argument of x!, since 70! ≥ 10¹⁰⁰.
 const MAX_FACTORIAL: i128 = 69;
@@ -29,6 +30,8 @@ pub struct Env<'a> {
     pub complex: bool,
     /// MatA–MatC and MatAns, available in MATRIX mode only.
     pub matrices: Option<&'a Matrices>,
+    /// VctA–VctC and VctAns, available in VECTOR mode only.
+    pub vectors: Option<&'a Vectors>,
 }
 
 impl Env<'_> {
@@ -38,6 +41,10 @@ impl Env<'_> {
 
     fn matrix(&self, id: MatId) -> CalcResult<&Matrix> {
         self.matrices.ok_or(CalcError::Syntax)?.get(id)
+    }
+
+    fn vector(&self, id: VctId) -> CalcResult<&Vector> {
+        self.vectors.ok_or(CalcError::Syntax)?.get(id)
     }
 }
 
@@ -55,6 +62,8 @@ pub enum Outcome {
     },
     /// A matrix result (MATRIX mode); it becomes MatAns.
     Matrix(Matrix),
+    /// A vector result (VECTOR mode); it becomes VctAns.
+    Vector(Vector),
 }
 
 impl Outcome {
@@ -63,7 +72,7 @@ impl Outcome {
         match self {
             Self::Single(n) => Some(n.clone()),
             Self::Polar { r: v, .. } | Self::Rect { x: v, .. } => Some(Number::Real(v.clone())),
-            Self::Matrix(_) => None,
+            Self::Matrix(_) | Self::Vector(_) => None,
         }
     }
 }
@@ -85,15 +94,18 @@ pub fn evaluate(expr: &Expr, env: &mut Env<'_>) -> Result<Outcome, LocatedError>
         _ => eval(expr, env).map(|operand| match operand {
             Operand::Scalar(n) => Outcome::Single(n),
             Operand::Matrix(m) => Outcome::Matrix(m),
+            Operand::Vector(v) => Outcome::Vector(v),
         }),
     }
 }
 
-/// What an expression evaluates to: a number, or a matrix in MATRIX mode.
+/// What an expression evaluates to: a number, or a matrix or vector in
+/// MATRIX or VECTOR mode.
 #[derive(Clone, Debug, PartialEq)]
 enum Operand {
     Scalar(Number),
     Matrix(Matrix),
+    Vector(Vector),
 }
 
 impl Operand {
@@ -101,7 +113,7 @@ impl Operand {
     fn scalar(self) -> CalcResult<Number> {
         match self {
             Self::Scalar(n) => Ok(n),
-            Self::Matrix(_) => Err(CalcError::Math),
+            Self::Matrix(_) | Self::Vector(_) => Err(CalcError::Math),
         }
     }
 }
@@ -116,6 +128,7 @@ fn eval(expr: &Expr, env: &mut Env<'_>) -> Result<Operand, LocatedError> {
         ExprKind::Imag if env.complex => Ok(Scalar(Number::i())),
         ExprKind::Imag => Err(CalcError::Syntax),
         ExprKind::Mat(id) => env.matrix(*id).map(|m| Mat(m.clone())),
+        ExprKind::Vct(id) => env.vector(*id).map(|v| Operand::Vector(v.clone())),
         ExprKind::Var(v) => Ok(Scalar(env.memory.get(*v).clone())),
         ExprKind::Ans => Ok(Scalar(env.memory.ans.clone())),
         // Ran# gives 0.000–0.999 in steps of 0.001.
@@ -138,13 +151,14 @@ fn eval(expr: &Expr, env: &mut Env<'_>) -> Result<Operand, LocatedError> {
         ExprKind::Unary(op, a) => match eval(a, env)? {
             Scalar(n) => scalar(unary(*op, &n, env)),
             Mat(m) => matrix_unary(*op, &m).map(Mat),
+            Operand::Vector(v) => vector_unary(*op, &v),
         },
         ExprKind::Binary(op, a, b) => {
             let a = eval(a, env)?;
             let b = eval(b, env)?;
             match (a, b) {
                 (Scalar(a), Scalar(b)) => scalar(binary(*op, &a, &b, env)),
-                (a, b) => matrix_binary(*op, a, b).map(Mat),
+                (a, b) => array_binary(*op, a, b),
             }
         }
         ExprKind::Call(func, args) => {
@@ -171,16 +185,36 @@ fn matrix_unary(op: UnaryOp, m: &Matrix) -> CalcResult<Matrix> {
     }
 }
 
-/// Binary operations with at least one matrix operand.
-fn matrix_binary(op: BinaryOp, a: Operand, b: Operand) -> CalcResult<Matrix> {
-    use Operand::{Matrix as Mat, Scalar};
+fn vector_unary(op: UnaryOp, v: &Vector) -> CalcResult<Operand> {
+    match op {
+        UnaryOp::Neg => v.neg().map(Operand::Vector),
+        UnaryOp::Abs => v.norm().map(|n| Operand::Scalar(Number::Real(n))),
+        _ => Err(CalcError::Math),
+    }
+}
+
+/// The reciprocal of a real scalar, for dividing a matrix or vector by it.
+fn reciprocal(k: Number) -> CalcResult<Value> {
+    Value::integer(1).div(&k.into_real()?)
+}
+
+/// Binary operations with at least one matrix or vector operand.
+fn array_binary(op: BinaryOp, a: Operand, b: Operand) -> CalcResult<Operand> {
+    use Operand::{Matrix as Mat, Scalar, Vector as Vct};
     match (op, a, b) {
-        (BinaryOp::Add, Mat(a), Mat(b)) => a.add(&b),
-        (BinaryOp::Sub, Mat(a), Mat(b)) => a.sub(&b),
-        (BinaryOp::Mul, Mat(a), Mat(b)) => a.mul(&b),
-        (BinaryOp::Mul, Scalar(k), Mat(m)) | (BinaryOp::Mul, Mat(m), Scalar(k)) => m.scale(&k.into_real()?),
-        (BinaryOp::Div, Mat(m), Scalar(k)) => m.scale(&Value::integer(1).div(&k.into_real()?)?),
-        (BinaryOp::Pow, Mat(m), Scalar(n)) => m.powi(integer_power(&n)?),
+        (BinaryOp::Add, Mat(a), Mat(b)) => a.add(&b).map(Mat),
+        (BinaryOp::Sub, Mat(a), Mat(b)) => a.sub(&b).map(Mat),
+        (BinaryOp::Mul, Mat(a), Mat(b)) => a.mul(&b).map(Mat),
+        (BinaryOp::Mul, Scalar(k), Mat(m)) | (BinaryOp::Mul, Mat(m), Scalar(k)) => m.scale(&k.into_real()?).map(Mat),
+        (BinaryOp::Div, Mat(m), Scalar(k)) => m.scale(&reciprocal(k)?).map(Mat),
+        (BinaryOp::Pow, Mat(m), Scalar(n)) => m.powi(integer_power(&n)?).map(Mat),
+        (BinaryOp::Add, Vct(a), Vct(b)) => a.add(&b).map(Vct),
+        (BinaryOp::Sub, Vct(a), Vct(b)) => a.sub(&b).map(Vct),
+        // × between vectors is the cross product, as on the device.
+        (BinaryOp::Mul, Vct(a), Vct(b)) => a.cross(&b).map(Vct),
+        (BinaryOp::Dot, Vct(a), Vct(b)) => a.dot(&b).map(|d| Scalar(Number::Real(d))),
+        (BinaryOp::Mul, Scalar(k), Vct(v)) | (BinaryOp::Mul, Vct(v), Scalar(k)) => v.scale(&k.into_real()?).map(Vct),
+        (BinaryOp::Div, Vct(v), Scalar(k)) => v.scale(&reciprocal(k)?).map(Vct),
         _ => Err(CalcError::Math),
     }
 }
@@ -190,7 +224,12 @@ fn call_operands(func: Func, args: Vec<Operand>, env: &mut Env<'_>) -> CalcResul
         (Func::Det, Operand::Matrix(m)) => m.det().map(|d| Operand::Scalar(Number::Real(d))),
         (Func::Trn, Operand::Matrix(m)) => Ok(Operand::Matrix(m.transpose())),
         (Func::Abs, Operand::Matrix(m)) => m.abs().map(Operand::Matrix),
-        (Func::Det | Func::Trn, _) => Err(CalcError::Math),
+        (Func::Abs, Operand::Vector(v)) => v.norm().map(|n| Operand::Scalar(Number::Real(n))),
+        (Func::Angle, Operand::Vector(a)) => match &args[1] {
+            Operand::Vector(b) => a.angle(b, env.settings.angle).map(|t| Operand::Scalar(Number::Real(t))),
+            _ => Err(CalcError::Math),
+        },
+        (Func::Det | Func::Trn | Func::Angle, _) => Err(CalcError::Math),
         _ => {
             let numbers = args.into_iter().map(Operand::scalar).collect::<CalcResult<Vec<_>>>()?;
             call(func, &numbers, env).map(Operand::Scalar)
@@ -240,6 +279,8 @@ fn binary(op: BinaryOp, a: &Number, b: &Number, env: &Env<'_>) -> CalcResult<Num
         BinaryOp::Pow if a.is_complex() || b.is_complex() => a.powi(integer_power(b)?),
         BinaryOp::Polar if env.complex => Number::from_polar(a.real()?, b.real()?, env.settings.angle),
         BinaryOp::Polar => Err(CalcError::Syntax),
+        // · needs two vectors.
+        BinaryOp::Dot => Err(CalcError::Math),
         _ => real_binary(op, a.real()?, b.real()?).map(Number::Real),
     }
 }
@@ -299,7 +340,7 @@ fn real_call(func: Func, args: &[Value], env: &mut Env<'_>) -> CalcResult<Value>
         // Only valid as a whole statement; see `evaluate`.
         Func::Pol | Func::Rec => Err(CalcError::Syntax),
         Func::Arg | Func::Conjg | Func::Abs | Func::Sqrt => unreachable!("handled in `call`"),
-        Func::Det | Func::Trn => unreachable!("handled in `call_operands`"),
+        Func::Det | Func::Trn | Func::Angle => unreachable!("handled in `call_operands`"),
     }
 }
 

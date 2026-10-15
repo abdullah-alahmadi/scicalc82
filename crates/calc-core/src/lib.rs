@@ -16,6 +16,7 @@ pub mod state;
 pub mod stats;
 pub mod table;
 pub mod value;
+pub mod vector;
 
 pub use calculator::Calculator;
 pub use error::{CalcError, CalcResult};

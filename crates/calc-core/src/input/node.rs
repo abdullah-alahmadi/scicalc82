@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::matrix::MatId;
 use crate::stats::StatVar;
+use crate::vector::VctId;
 
 /// Functions that are entered as a name plus an opening parenthesis.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -45,6 +46,8 @@ pub enum Func {
     Det,
     /// MATRIX: the transpose.
     Trn,
+    /// VECTOR: the angle between two vectors.
+    Angle,
 }
 
 impl Func {
@@ -75,6 +78,7 @@ impl Func {
             Self::Conjg => "Conjg(",
             Self::Det => "det(",
             Self::Trn => "Trn(",
+            Self::Angle => "Angle(",
         }
     }
 }
@@ -166,6 +170,10 @@ pub enum Token {
     ToRect,
     /// A matrix variable (MATRIX mode).
     Mat(MatId),
+    /// A vector variable (VECTOR mode).
+    Vct(VctId),
+    /// The dot product of two vectors (VECTOR mode).
+    Dot,
 }
 
 impl Token {
@@ -215,6 +223,8 @@ impl fmt::Display for Token {
             Self::ToPolar => "▸r∠θ",
             Self::ToRect => "▸a+bi",
             Self::Mat(m) => m.name(),
+            Self::Vct(v) => v.name(),
+            Self::Dot => "·",
         };
         f.write_str(text)
     }

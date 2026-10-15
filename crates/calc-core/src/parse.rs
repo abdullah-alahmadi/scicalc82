@@ -9,7 +9,7 @@
 //! 6. multiplication with the sign omitted (`2π`, `3sin(30)`, `2(1+1)`, `3i`)
 //! 7. `∠` between a modulus and an angle (CMPLX mode)
 //! 8. nPr, nCr
-//! 9. ×, ÷
+//! 9. ×, ÷, and the vector dot product ·
 //! 10. +, −
 //!
 //! Because 6 binds tighter than 8, `1÷2π` means `1÷(2π)`, as on school
@@ -140,6 +140,7 @@ impl<'a> Parser<'a> {
         self.binary_loop(Self::permutation, |t| match t {
             Token::Times => Some(BinaryOp::Mul),
             Token::Divide => Some(BinaryOp::Div),
+            Token::Dot => Some(BinaryOp::Dot),
             _ => None,
         })
     }
@@ -177,6 +178,7 @@ impl<'a> Parser<'a> {
                     | Token::Stat(_)
                     | Token::Imag
                     | Token::Mat(_)
+                    | Token::Vct(_)
             ),
             Some(Item::Template(t)) => t.kind != TemplateKind::Power,
             None => false,
@@ -310,6 +312,7 @@ impl<'a> Parser<'a> {
             Token::Stat(v) => ExprKind::Stat(v),
             Token::Imag => ExprKind::Imag,
             Token::Mat(m) => ExprKind::Mat(m),
+            Token::Vct(v) => ExprKind::Vct(v),
             _ => return Err(self.error(CalcError::Syntax)),
         };
         self.pos += 1;
@@ -338,7 +341,7 @@ impl<'a> Parser<'a> {
             args.push(self.additive()?);
         }
         let arity_ok = match func {
-            Func::Pol | Func::Rec | Func::RanInt => args.len() == 2,
+            Func::Pol | Func::Rec | Func::RanInt | Func::Angle => args.len() == 2,
             Func::Log => args.len() <= 2,
             _ => args.len() == 1,
         };

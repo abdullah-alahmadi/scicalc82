@@ -76,6 +76,17 @@ pub enum Formatted {
     Dms(DmsText),
     Complex(ComplexText),
     Matrix(MatrixText),
+    Vector(VectorText),
+}
+
+/// A vector result: its components, each formatted like a real result.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VectorText {
+    pub cells: Vec<Formatted>,
+}
+
+pub fn format_vector(v: &crate::vector::Vector, settings: &FormatSettings, form: ResultForm) -> Formatted {
+    Formatted::Vector(VectorText { cells: (0..v.dim()).map(|i| format_value(v.get(i), settings, form)).collect() })
 }
 
 /// A matrix result: its cells, row by row, each formatted like a real result.
@@ -348,7 +359,16 @@ impl fmt::Display for Formatted {
             Self::Dms(d) => d.fmt(f),
             Self::Complex(c) => c.fmt(f),
             Self::Matrix(m) => m.fmt(f),
+            Self::Vector(v) => v.fmt(f),
         }
+    }
+}
+
+/// `[1, 2, 3]`
+impl fmt::Display for VectorText {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let cells: Vec<String> = self.cells.iter().map(ToString::to_string).collect();
+        write!(f, "[{}]", cells.join(", "))
     }
 }
 

@@ -5,6 +5,7 @@ use crate::input::{Cursor, Func, Var};
 use crate::matrix::MatId;
 use crate::stats::StatVar;
 use crate::value::Value;
+use crate::vector::VctId;
 
 /// An error and the input position the device's cursor jumps to.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -32,6 +33,8 @@ pub enum ExprKind {
     Imag,
     /// A matrix variable (MATRIX mode).
     Mat(MatId),
+    /// A vector variable (VECTOR mode).
+    Vct(VctId),
     Stat(StatVar),
     Unary(UnaryOp, Box<Expr>),
     Binary(BinaryOp, Box<Expr>, Box<Expr>),
@@ -75,4 +78,6 @@ pub enum BinaryOp {
     LogBase,
     /// r∠θ: modulus, angle (CMPLX mode)
     Polar,
+    /// The dot product of two vectors (VECTOR mode)
+    Dot,
 }

@@ -26,7 +26,8 @@ For how to use every key, mode and menu, see the **[User Manual](docs/USER_MANUA
   - **TABLE:** values of f(X) over a range.
   - **EQN:** solves two or three simultaneous linear equations, and quadratic and cubic equations. Answers are exact where possible (`X²−2=0` gives `±√2`), and complex roots are included.
   - **MATRIX:** matrices up to 3×3 (MatA, MatB, MatC and MatAns) with exact entries. Supports + − ×, multiplying or dividing by a number, x², x³ and integer powers, the inverse (x⁻¹), det, Trn (transpose) and Abs.
-- **Persistence:** settings, memory, mode, STAT data and the TABLE setup are saved between launches. On Windows the file is `%APPDATA%\scicalc82\data\app.ron`. If the file is damaged, the app starts fresh instead of failing.
+  - **VECTOR:** 2D and 3D vectors (VctA, VctB, VctC and VctAns) with exact components. Supports + −, multiplying or dividing by a number, the dot product, the cross product, Abs (length, such as `√14`) and the angle between two vectors.
+- **Persistence:** settings, memory, mode, STAT data, the TABLE setup, matrices, vectors and EQN coefficients are saved between launches. On Windows the file is `%APPDATA%\scicalc82\data\app.ron`. If the file is damaged, the app starts fresh instead of failing.
 
 ## Build and run
 
@@ -81,7 +82,7 @@ Click the keys, or use the PC keyboard. Hovering over the model name in the app 
 | Ctrl+C | Copy the result |
 
 The modes work like the device:
-- **MODE:** 1 for COMP, 2 for CMPLX, 3 for STAT, 4 for TABLE, 5 for MATRIX, 6 for EQN.
+- **MODE:** 1 for COMP, 2 for CMPLX, 3 for STAT, 4 for TABLE, 5 for MATRIX, 6 for EQN, 7 for VECTOR.
 - **SHIFT MODE:** opens SETUP. ▼ shows its second page, which includes the CMPLX result format (a+bi or r∠θ).
 - **CMPLX mode:**
   - The ENG key types `i`, and SHIFT (−) types `∠`. Angles use the current angle unit.
@@ -98,6 +99,11 @@ The modes work like the device:
   - SHIFT 4 opens the MATRIX menu: Dim (resize a matrix), Data (edit its cells), MatA, MatB, MatC, MatAns, det and Trn.
   - Matrix results are drawn in brackets and become MatAns; results that are numbers, such as det, become Ans.
   - Mismatched sizes give a Dimension ERROR, and inverting a singular matrix gives a Math ERROR.
+- **VECTOR mode:**
+  - On entering the mode, choose a vector and its dimension (3D or 2D), then type each component followed by =. AC returns to calculations.
+  - SHIFT 5 opens the VECTOR menu: Dim, Data, VctA, VctB, VctC, VctAns, Dot (`·`) and Angle.
+  - × between two vectors is the cross product; two 2D vectors give (0, 0, z). Vector results become VctAns.
+  - Mixing 2D and 3D vectors gives a Dimension ERROR.
 - **CLR (SHIFT 9):** resets setup, memory, or both.
 
 ## Project layout

@@ -27,6 +27,8 @@ pub enum CalcMode {
     Matrix,
     /// Equation solving: linear systems and polynomials.
     Eqn,
+    /// 2D and 3D vectors: VctA–VctC and VctAns.
+    Vector,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

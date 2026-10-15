@@ -6,6 +6,7 @@ use crate::input::{Func, Token};
 use crate::matrix::MatId;
 use crate::state::{AngleUnit, CalcMode};
 use crate::stats::{StatKind, StatVar};
+use crate::vector::VctId;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MenuId {
@@ -43,6 +44,14 @@ pub enum MenuId {
     },
     /// The kind of equation to solve (EQN mode).
     EqnType,
+    /// SHIFT 5 in VECTOR mode.
+    Vector,
+    /// Which vector to size (`define`) or edit.
+    VctSelect {
+        define: bool,
+    },
+    /// The dimension of a vector.
+    VctDim(VctId),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -68,6 +77,10 @@ pub(crate) enum MenuAction {
     EditMatrix(MatId),
     /// Choose the equation type and edit its coefficients.
     EqnType(EqnKind),
+    /// Create a zero vector with this dimension and edit it.
+    DefineVector(VctId, usize),
+    /// Edit a vector's components (or size it first if it doesn't exist yet).
+    EditVector(VctId),
 }
 
 /// An open menu as the display shows it.
@@ -98,6 +111,7 @@ fn entries(id: MenuId, kind: StatKind) -> Vec<(&'static str, MenuAction)> {
                 ("TABLE", Mode(CalcMode::Table)),
                 ("MATRIX", Mode(CalcMode::Matrix)),
                 ("EQN", Mode(CalcMode::Eqn)),
+                ("VECTOR", Mode(CalcMode::Vector)),
             ]
         }
         MenuId::StatType => vec![("1-VAR", StatType(StatKind::OneVar)), ("A+BX", StatType(StatKind::Linear))],
@@ -140,6 +154,21 @@ fn entries(id: MenuId, kind: StatKind) -> Vec<(&'static str, MenuAction)> {
             ("2×2", DefineMatrix(id, 2, 2)),
             ("2×1", DefineMatrix(id, 2, 1)),
         ],
+        MenuId::Vector => vec![
+            ("Dim", Open(MenuId::VctSelect { define: true })),
+            ("Data", Open(MenuId::VctSelect { define: false })),
+            ("VctA", Insert(Token::Vct(VctId::A))),
+            ("VctB", Insert(Token::Vct(VctId::B))),
+            ("VctC", Insert(Token::Vct(VctId::C))),
+            ("VctAns", Insert(Token::Vct(VctId::Ans))),
+            ("Dot", Insert(Token::Dot)),
+            ("Angle", Insert(Token::Func(Func::Angle))),
+        ],
+        MenuId::VctSelect { define } => VctId::STORED
+            .iter()
+            .map(|&id| (id.name(), if define { Open(MenuId::VctDim(id)) } else { EditVector(id) }))
+            .collect(),
+        MenuId::VctDim(id) => vec![("3", DefineVector(id, 3)), ("2", DefineVector(id, 2))],
         MenuId::EqnType => [EqnKind::Linear2, EqnKind::Linear3, EqnKind::Quadratic, EqnKind::Cubic]
             .iter()
             .map(|&kind| (kind.label(), EqnType(kind)))
@@ -211,6 +240,8 @@ fn title(id: MenuId) -> Option<&'static str> {
         MenuId::StatFreq => Some("Frequency?"),
         MenuId::CmplxFormat => Some("Complex Result?"),
         MenuId::MatSelect { .. } => Some("Matrix?"),
+        MenuId::VctSelect { .. } => Some("Vector?"),
+        MenuId::VctDim(_) => Some("Dimension?"),
         MenuId::MatDim { .. } => Some("m×n?"),
         MenuId::Clr => Some("Clear?"),
         MenuId::Drg => Some("DRG▸"),

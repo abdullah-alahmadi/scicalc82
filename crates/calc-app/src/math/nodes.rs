@@ -314,6 +314,10 @@ pub fn formatted_nodes(f: &Formatted, natural: bool) -> Vec<Node> {
         Formatted::Matrix(m) => out.push(Node::Matrix(
             m.rows.iter().map(|row| row.iter().map(|cell| formatted_nodes(cell, natural)).collect()).collect(),
         )),
+        // A vector is drawn as a one-row matrix.
+        Formatted::Vector(v) => {
+            out.push(Node::Matrix(vec![v.cells.iter().map(|cell| formatted_nodes(cell, natural)).collect()]))
+        }
         Formatted::Complex(ComplexText::Polar { r, theta }) => {
             out.extend(formatted_nodes(r, natural));
             out.push(text("∠"));

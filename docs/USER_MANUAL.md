@@ -19,6 +19,7 @@ SciCalc 82 is a scientific calculator for the desktop and the web, modeled on th
    - [TABLE: tables of values](#74-table-tables-of-values)
    - [MATRIX: matrices](#75-matrix-matrices)
    - [EQN: equations](#76-eqn-equations)
+   - [VECTOR: vectors](#77-vector-vectors)
 8. [Error messages](#8-error-messages)
 9. [Saved state and resetting](#9-saved-state-and-resetting)
 10. [Key reference](#10-key-reference)
@@ -61,7 +62,7 @@ The top line of the display holds small **indicators**:
 | **hyp** | Waiting for sin, cos or tan to make it hyperbolic |
 | **D** / **R** / **G** | The angle unit: degrees, radians or grads |
 | **FIX** / **SCI** | A fixed number of decimal places, or scientific notation, is set |
-| **STAT** / **CMPLX** / **MAT** / **EQN** | The current mode (nothing is shown in COMP and TABLE) |
+| **STAT** / **CMPLX** / **MAT** / **EQN** / **VCT** | The current mode (nothing is shown in COMP and TABLE) |
 | **Math** | Natural (textbook) display is on |
 | **▲** | Earlier calculations can be replayed with ▲ |
 
@@ -324,6 +325,7 @@ Press **MODE** to change mode:
 | 4 | TABLE | Tables of f(X) |
 | 5 | MATRIX | Matrices |
 | 6 | EQN | Solving equations |
+| 7 | VECTOR | 2D and 3D vectors |
 
 ### 7.1 COMP: everyday calculations
 
@@ -476,6 +478,49 @@ Entries stay exact, so the inverse of [[1, 2], [3, 4]] is `[[−2, 1], [3/2, −
 - **Order of roots:** real roots come first, largest first, then complex roots, with +i first.
 - **A first coefficient of 0** in a quadratic or cubic is a Math ERROR.
 
+### 7.7 VECTOR: vectors
+
+**Setting up a vector:**
+
+1. Press **MODE 7**. The calculator asks which vector to set up: **1: VctA**, **2: VctB** or **3: VctC**.
+2. Choose its dimension: **1: 3** (3D) or **2: 2** (2D).
+3. Type each component and press **=**. The arrows move between components.
+4. Press **AC** when you're done.
+
+![Entering VctA](images/vector_editor.png)
+
+**The VECTOR menu (SHIFT 5):**
+
+| | |
+|---|---|
+| 1: Dim | Set up a vector, or change its dimension (this clears its components) |
+| 2: Data | Edit a vector's components |
+| 3–5: VctA, VctB, VctC | Put a vector in your calculation |
+| 6: VctAns | The last vector result |
+| 7: Dot | The dot product sign `·`, as in `VctA·VctB` |
+| 8: Angle | The angle between two vectors, `Angle(VctA,VctB)` |
+
+**Operations:**
+- **+ and −** between vectors of the same dimension.
+- **A number times or divided by a vector:** `2VctA`, `VctA÷2`.
+- **Dot product:** `VctA·VctB` gives a number.
+- **Cross product:** `VctA×VctB`. The cross product of two 2D vectors is the 3D vector (0, 0, z).
+- **Length:** `Abs(VctA)`. Lengths stay exact, so the length of (1, 2, 3) is `√14`.
+- **Angle:** `Angle(VctA,VctB)`, in the current angle unit. Special angles are exact, so (1, 0) and (1, 1) give `45` in degrees.
+
+![The cross product of (1, 2, 3) and (4, 5, 6)](images/vector_cross.png)
+
+![The angle between (1, 0) and (1, 1)](images/vector_angle.png)
+
+**Where results go:**
+- A vector result is drawn in brackets and becomes **VctAns**.
+- A result that is a number, such as a dot product, length or angle, becomes **Ans** as usual.
+- Vectors can't be stored in A–F, X, Y or M.
+
+**Errors:**
+- **Dimension ERROR:** mixing 2D and 3D vectors, or using a vector that hasn't been set up.
+- **Math ERROR:** adding a number to a vector, dividing by a vector, or the angle with a zero vector.
+
 ---
 
 ## 8. Error messages
@@ -487,7 +532,7 @@ Entries stay exact, so the inverse of [[1, 2], [3, 4]] is `[[−2, 1], [3/2, −
 | **Math ERROR** | A result out of range (10¹⁰⁰ or more), division by zero, or a value a function can't take, such as √ of a negative number, log 0, tan 90° or 70! |
 | **Syntax ERROR** | The calculation isn't written correctly, such as `1+` or a missing number |
 | **Stack ERROR** | More than 24 nested parentheses, functions or templates |
-| **Dimension ERROR** | Matrix sizes that don't fit, or a matrix that hasn't been set up |
+| **Dimension ERROR** | Matrix or vector sizes that don't fit, or a matrix or vector that hasn't been set up |
 | **Insufficient MEM** | A TABLE of more than 30 rows, or more than 40 rows of STAT data |
 | **Argument ERROR** | An argument the command can't use |
 
@@ -501,7 +546,7 @@ On an error screen, **AC** clears the line, and **←** or **→** returns to th
 - the settings
 - Ans and the variables
 - the current mode
-- STAT data, the TABLE setup, the matrices and the EQN coefficients
+- STAT data, the TABLE setup, the matrices, the vectors and the EQN coefficients
 
 The line you were typing and the history are not kept.
 
@@ -545,6 +590,7 @@ If the saved file is damaged, the calculator starts with defaults rather than fa
 | 1 | 1 | STAT menu (STAT) | |
 | 2 | 2 | CMPLX menu (CMPLX) | |
 | 4 | 4 | MATRIX menu (MATRIX) | |
+| 5 | 5 | VECTOR menu (VECTOR) | |
 | 9 | 9 | CLR | |
 | . | Decimal point | Ran# | RanInt#( |
 | × / ÷ | Multiply / divide | nPr / nCr | |
@@ -607,4 +653,5 @@ You can type on the PC keyboard instead of clicking. Hovering over the model nam
 | STAT data | Up to 40 rows |
 | TABLE | Up to 30 rows |
 | Matrices | Up to 3×3; MatA, MatB, MatC and MatAns |
+| Vectors | 2D or 3D; VctA, VctB, VctC and VctAns |
 | Equations | 2 or 3 linear unknowns; quadratic and cubic polynomials |

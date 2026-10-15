@@ -93,6 +93,7 @@ const GLYPHS: &[(char, &[&str])] = &[
     ('+', &[".....", "..#..", "..#..", "#####", "..#..", "..#..", "....."]),
     ('-', &["...", "...", "...", "###", "...", "...", "..."]),
     ('−', &[".....", ".....", ".....", "#####", ".....", ".....", "....."]),
+    ('·', &[".", ".", ".", "#", ".", ".", "."]),
     ('×', &[".....", "#...#", ".#.#.", "..#..", ".#.#.", "#...#", "....."]),
     ('÷', &[".....", "..#..", ".....", "#####", ".....", "..#..", "....."]),
     ('*', &[".....", "..#..", "#.#.#", ".###.", "#.#.#", "..#..", "....."]),
@@ -281,6 +282,7 @@ mod tests {
             "r= θ= X= Y= f(X)= Table Range Start? End? Step? F(X) ERROR 1234567890.",
             "MAT 5:MATRIX Matrix? 1:MatA 2:MatB 3:MatC m×n? 1:3×3 1:Dim 2:Data 6:MatAns 7:det 8:Trn Dimension ERROR det( Trn(",
             "EQN 6:EQN 1:anX+bnY=cn 2:anX+bnY+cnZ=dn 3:aX²+bX+c=0 4:aX³+bX²+cX+d=0 X1= X2= X3= Z= No Solution Infinite Solution a b c d",
+            "VCT 7:VECTOR Vector? 1:VctA 2:VctB 3:VctC Dimension? 1:3 2:2 6:VctAns 7:Dot 8:Angle Angle( VctA·VctB",
             "CMPLX 2:CMPLX 1:arg 2:Conjg 3:▸r∠θ 4:▸a+bi Complex Result? 1:a+bi 2:r∠θ 1+2i √2∠45 arg( Conjg(",
         ];
         for text in samples {

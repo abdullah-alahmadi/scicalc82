@@ -86,6 +86,7 @@ fn draw_indicators(painter: &Painter, view: View, calc: &Calculator) {
         (166.0, "CMPLX", calc.mode() == CalcMode::Cmplx),
         (166.0, "MAT", calc.mode() == CalcMode::Matrix),
         (166.0, "EQN", calc.mode() == CalcMode::Eqn),
+        (166.0, "VCT", calc.mode() == CalcMode::Vector),
         (220.0, "Math", settings.format.natural),
         (260.0, "▲", on_calc && calc.history_len() > 0),
     ];
@@ -122,8 +123,10 @@ fn draw_calc(painter: &Painter, view: View, calc: &Calculator, cursor_visible: b
         return draw_error(painter, view, err.error, true);
     }
     let editing = matches!(calc.phase(), Phase::Editing);
-    // A matrix result gets most of the display: its input shrinks to one line.
-    let matrix = matches!(calc.phase(), Phase::Result(v) if matches!(v.outcome, Outcome::Matrix(_)));
+    // A matrix or vector result gets most of the display: its input shrinks
+    // to one line.
+    let matrix = matches!(calc.phase(),
+        Phase::Result(v) if matches!(v.outcome, Outcome::Matrix(_) | Outcome::Vector(_)));
     let (input_height, min_size) =
         if matrix { (MATRIX_INPUT_HEIGHT, MIN_MATRIX_SIZE) } else { (INPUT_HEIGHT, MIN_RESULT_SIZE) };
     let area = glass_rect(view, 6.0, 15.0, GLASS.2 - 12.0, input_height);
@@ -310,16 +313,18 @@ fn draw_stat_editor(painter: &Painter, view: View, calc: &Calculator, cursor_vis
     }
 }
 
-/// Entering a matrix: its cells in a grid, with the value being typed (or
-/// the highlighted cell's value) underneath.
+/// Entering a matrix or vector: its cells in a grid, with the value being
+/// typed (or the highlighted cell's value) underneath.
 fn draw_matrix_editor(painter: &Painter, view: View, calc: &Calculator, cursor_visible: bool) {
     let ed = calc.matrix_editor();
-    let Some(m) = calc.matrices().slot(ed.id) else { return };
+    let Some(cells) = calc.array_cells(ed.id) else { return };
     let number = calc.settings().format.number;
-    let rows = (0..m.rows())
-        .map(|r| (r + 1, (0..m.cols()).map(|c| Some(cell_nodes(m.get(r, c), number))).collect()))
+    let rows = cells
+        .iter()
+        .enumerate()
+        .map(|(r, row)| (r + 1, row.iter().map(|v| Some(cell_nodes(v, number))).collect()))
         .collect();
-    let headers = ["1", "2", "3"][..m.cols()].to_vec();
+    let headers = ["1", "2", "3"][..cells[0].len()].to_vec();
     draw_grid(view, &Grid { title: Some(ed.id.name()), headers, rows, selected: (ed.row, ed.col), painter });
 
     let area = bottom_area(view);
@@ -329,7 +334,7 @@ fn draw_matrix_editor(painter: &Painter, view: View, calc: &Calculator, cursor_v
     } else if !ed.input.is_empty() {
         draw_editor(painter, view, area, &ed.input, true, cursor_visible);
     } else {
-        let nodes = formatted_nodes(&calc.format(m.get(ed.row, ed.col)), calc.settings().format.natural);
+        let nodes = formatted_nodes(&calc.format(&cells[ed.row][ed.col]), calc.settings().format.natural);
         fit(painter, view, area, &nodes, 16.0, 9.0, false, theme::LCD_INK);
     }
 }
