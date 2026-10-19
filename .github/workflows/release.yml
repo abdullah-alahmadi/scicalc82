@@ -95,12 +95,12 @@ jobs:
       - run: cargo build --release -p calc-app
       - run: cargo packager -p scicalc82 --release --formats deb
       - run: cargo generate-rpm -p crates/calc-app
+      # One flat folder: the release step attaches only top-level files.
+      - run: mkdir packages && cp target/release/*.deb target/generate-rpm/*.rpm packages/
       - uses: actions/upload-artifact@v4
         with:
           name: linux-${{ matrix.arch }}
-          path: |
-            target/release/*.deb
-            target/generate-rpm/*.rpm
+          path: packages/*
 
   release:
     name: GitHub release
