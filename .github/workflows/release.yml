@@ -1,0 +1,120 @@
+# Builds the installers on each platform. Run it from the Actions tab
+# (workflow_dispatch) to get them as build artifacts, or push a tag such as
+# v0.1.0 to also attach them to a GitHub release.
+
+name: Installers
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Windows ${{ matrix.arch }}
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x64, target: x86_64-pc-windows-msvc }
+          # Cross-compiled: the runner's Visual Studio has the ARM64 tools.
+          - { arch: arm64, target: aarch64-pc-windows-msvc }
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - run: cargo install cargo-packager --locked
+      - run: cargo build --release -p calc-app --target ${{ matrix.target }}
+      - run: cargo packager -p scicalc82 --release --target ${{ matrix.target }} --formats nsis
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.arch }}
+          path: target/${{ matrix.target }}/release/*-setup.exe
+
+  macos:
+    name: macOS ${{ matrix.arch }}
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: aarch64, target: aarch64-apple-darwin }
+          - { arch: x64, target: x86_64-apple-darwin }
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - run: cargo install cargo-packager --locked
+      - run: cargo build --release -p calc-app --target ${{ matrix.target }}
+      - run: cargo packager -p scicalc82 --release --target ${{ matrix.target }} --formats app
+      # Without an Apple Developer ID the app can only be signed ad hoc, which
+      # Apple Silicon requires for the bundle to open at all.
+      - name: Sign ad hoc and make the .dmg
+        run: |
+          out=target/${{ matrix.target }}/release
+          codesign --force --deep --sign - "$out/SciCalc 82.app"
+          mkdir dmg
+          cp -R "$out/SciCalc 82.app" dmg/
+          ln -s /Applications dmg/Applications
+          version=$(cargo pkgid -p calc-app | sed 's/.*[#@]//')
+          hdiutil create -volname "SciCalc 82" -srcfolder dmg -ov -format UDZO \
+            "scicalc82_${version}_${{ matrix.arch }}.dmg"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}
+          path: "*.dmg"
+
+  linux:
+    name: Linux ${{ matrix.arch }}
+    # The oldest supported Ubuntu, so the packages need only glibc 2.35 and
+    # also install on Debian 12, Fedora 36+ and RHEL 10.
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x64, runner: ubuntu-22.04 }
+          - { arch: arm64, runner: ubuntu-22.04-arm }
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install cargo-packager cargo-generate-rpm --locked
+      - run: cargo build --release -p calc-app
+      - run: cargo packager -p scicalc82 --release --formats deb
+      - run: cargo generate-rpm -p crates/calc-app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ matrix.arch }}
+          path: |
+            target/release/*.deb
+            target/generate-rpm/*.rpm
+
+  release:
+    name: GitHub release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, macos, linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: installers
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: installers/*
+          draft: true

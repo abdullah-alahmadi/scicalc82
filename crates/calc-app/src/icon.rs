@@ -1,4 +1,5 @@
-//! The window icon. Explorer's .exe icon comes from the same pixels via `build.rs`.
+//! The window icon. Explorer's .exe icon (`build.rs`) and the installers'
+//! icons (`icons/`) come from the same pixels.
 
 use eframe::egui::IconData;
 
@@ -53,6 +54,47 @@ mod tests {
     #[ignore = "rewrites assets/favicon.svg"]
     fn write_favicon() {
         std::fs::write(FAVICON, icon_pixels::svg()).expect("write favicon.svg");
+    }
+
+    /// The installers' icons (see `packaging/`): PNGs for Linux, .ico for
+    /// the Windows installer and .icns for the macOS app.
+    #[test]
+    #[ignore = "rewrites the icons/ folder"]
+    fn write_package_icons() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("icons");
+        std::fs::create_dir_all(&dir).expect("create icons/");
+        for size in [32, 48, 64, 128, 256, 512] {
+            std::fs::write(dir.join(format!("{size}x{size}.png")), png(size)).expect("write png");
+        }
+        std::fs::write(dir.join("icon.ico"), icon_pixels::ico()).expect("write icon.ico");
+        // .icns: a header, then (type, length, PNG data) for each size.
+        let mut body = Vec::new();
+        for (kind, size) in
+            [(b"ic11", 32), (b"ic12", 64), (b"ic07", 128), (b"ic08", 256), (b"ic09", 512), (b"ic10", 1024)]
+        {
+            let data = png(size);
+            body.extend(kind);
+            body.extend((data.len() as u32 + 8).to_be_bytes());
+            body.extend(data);
+        }
+        let mut icns = b"icns".to_vec();
+        icns.extend((body.len() as u32 + 8).to_be_bytes());
+        icns.extend(body);
+        std::fs::write(dir.join("icon.icns"), icns).expect("write icon.icns");
+    }
+
+    fn png(size: u32) -> Vec<u8> {
+        let image = image::RgbaImage::from_raw(size, size, icon_pixels::rgba(size)).expect("icon pixels");
+        let mut out = std::io::Cursor::new(Vec::new());
+        image.write_to(&mut out, image::ImageFormat::Png).expect("encode png");
+        out.into_inner()
+    }
+
+    #[test]
+    fn ico_lists_every_size() {
+        let ico = icon_pixels::ico();
+        assert_eq!(ico[..4], [0, 0, 1, 0], "an icon file");
+        assert_eq!(u16::from_le_bytes([ico[4], ico[5]]), 6);
     }
 
     #[test]

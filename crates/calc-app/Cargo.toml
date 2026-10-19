@@ -3,6 +3,14 @@ name = "calc-app"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "A scientific calculator with a textbook display and exact answers"
+authors = ["abdullah-alahmadi"]
+
+# The executable's name (scicalc82.exe, /usr/bin/scicalc82); the package
+# keeps its name, so `cargo run -p calc-app` still works.
+[[bin]]
+name = "scicalc82"
+path = "src/main.rs"
 
 [lints]
 workspace = true
@@ -30,3 +38,69 @@ winresource = "0.1.34"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-futures = "0.4.79"
+
+# Installers, built by cargo-packager (Windows .exe, macOS .app/.dmg,
+# Linux .deb) and cargo-generate-rpm (.rpm). See "Installers" in the README.
+[package.metadata.packager]
+name = "scicalc82"
+productName = "SciCalc 82"
+identifier = "io.github.abdullah-alahmadi.scicalc82"
+publisher = "abdullah-alahmadi"
+category = "Utility"
+longDescription = """\
+A desktop scientific calculator with a textbook-style display and exact \
+answers such as √2/2 and 3π/4. It has the keys, menus and modes of a classic \
+school scientific calculator, plus complex numbers, matrices, vectors and an \
+equation solver."""
+icons = [
+    "icons/32x32.png",
+    "icons/48x48.png",
+    "icons/64x64.png",
+    "icons/128x128.png",
+    "icons/256x256.png",
+    "icons/512x512.png",
+    "icons/icon.icns",
+    "icons/icon.ico",
+]
+
+[package.metadata.packager.nsis]
+# Installs without administrator rights, in %LOCALAPPDATA%\SciCalc 82.
+installMode = "currentUser"
+installerIcon = "icons/icon.ico"
+# The uninstaller offers to delete the saved settings and memory too.
+appdataPaths = ["$APPDATA/scicalc82"]
+
+[package.metadata.packager.macos]
+minimumSystemVersion = "11.0"
+
+# The .desktop file is shared with the .rpm (packaging/linux).
+[package.metadata.packager.linux]
+generateDesktopEntry = false
+
+[package.metadata.packager.deb]
+packageName = "scicalc82"
+section = "math"
+files = { "../../packaging/linux/scicalc82.desktop" = "usr/share/applications/scicalc82.desktop" }
+# eframe loads the X11/Wayland and OpenGL libraries at run time.
+depends = ["libgl1", "libegl1", "libxkbcommon-x11-0", "libwayland-client0", "libwayland-egl1"]
+
+[package.metadata.generate-rpm]
+name = "scicalc82"
+summary = "A scientific calculator with a textbook display and exact answers"
+assets = [
+    { source = "target/release/scicalc82", dest = "/usr/bin/scicalc82", mode = "755" },
+    { source = "../../packaging/linux/scicalc82.desktop", dest = "/usr/share/applications/scicalc82.desktop", mode = "644" },
+    { source = "icons/32x32.png", dest = "/usr/share/icons/hicolor/32x32/apps/scicalc82.png", mode = "644" },
+    { source = "icons/48x48.png", dest = "/usr/share/icons/hicolor/48x48/apps/scicalc82.png", mode = "644" },
+    { source = "icons/64x64.png", dest = "/usr/share/icons/hicolor/64x64/apps/scicalc82.png", mode = "644" },
+    { source = "icons/128x128.png", dest = "/usr/share/icons/hicolor/128x128/apps/scicalc82.png", mode = "644" },
+    { source = "icons/256x256.png", dest = "/usr/share/icons/hicolor/256x256/apps/scicalc82.png", mode = "644" },
+    { source = "icons/512x512.png", dest = "/usr/share/icons/hicolor/512x512/apps/scicalc82.png", mode = "644" },
+]
+
+[package.metadata.generate-rpm.requires]
+libglvnd-glx = "*"
+libglvnd-egl = "*"
+libxkbcommon-x11 = "*"
+libwayland-client = "*"
+libwayland-egl = "*"

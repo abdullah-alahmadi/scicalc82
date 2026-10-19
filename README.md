@@ -37,7 +37,7 @@ You need a recent stable Rust toolchain (edition 2024).
 cargo run --release -p calc-app
 ```
 
-The optimized executable is written to `target/release/calc-app.exe`.
+The optimized executable is written to `target/release/scicalc82.exe` (`scicalc82` on macOS and Linux).
 
 ### Web version
 
@@ -58,6 +58,60 @@ trunk serve
 ```
 
 That serves the calculator at http://localhost:8765 and rebuilds when files change. `trunk build` writes a static site to `crates/calc-app/dist/`, which you can upload to any static host (GitHub Pages, Netlify, and so on). The `.wasm` file is about 5 MB, roughly 2 MB once the server compresses it. In the browser, settings and memory are saved in the page's local storage.
+
+### Installers
+
+| Platform | File | Installs to |
+|---|---|---|
+| Windows x64 / ARM64 | `scicalc82_<version>_x64-setup.exe`, `…_arm64-setup.exe` | `%LOCALAPPDATA%\SciCalc 82`, with Start menu and desktop shortcuts. No administrator rights needed. |
+| macOS (Apple silicon / Intel) | `scicalc82_<version>_aarch64.dmg`, `…_x64.dmg` | Drag *SciCalc 82* to Applications |
+| Debian, Ubuntu | `scicalc82_<version>_amd64.deb` (or `arm64`) | `sudo apt install ./scicalc82_*.deb` |
+| Fedora, RHEL | `scicalc82-<version>-1.x86_64.rpm` (or `aarch64`) | `sudo dnf install ./scicalc82-*.rpm` |
+
+The installers are not code-signed:
+- **Windows:** SmartScreen may say it "protected your PC". Choose *More info*, then *Run anyway*.
+- **macOS:** the first time, right-click the app and choose *Open*, or allow it in *System Settings → Privacy & Security*.
+- **Uninstalling:** on Windows, use *Settings → Apps* (it offers to keep or delete the saved settings and memory). On Linux, use `sudo apt remove scicalc82` or `sudo dnf remove scicalc82`.
+
+**Building them with GitHub Actions.** The `Installers` workflow (`.github/workflows/release.yml`) builds all of them on GitHub's Windows, macOS and Linux machines. Run it from the Actions tab to download the installers as build artifacts. Pushing a tag such as `v0.1.0` also attaches them to a draft GitHub release. The Linux packages are built on Ubuntu 22.04, so they also run on Debian 12, Fedora 36 and later, and RHEL 10.
+
+**Building them yourself.** Each installer is built on its own operating system with [cargo-packager](https://github.com/crabnebula-dev/cargo-packager), plus [cargo-generate-rpm](https://github.com/cat-in-136/cargo-generate-rpm) for the .rpm:
+
+```bash
+cargo install cargo-packager cargo-generate-rpm --locked
+```
+
+On Windows, for x64 (use `aarch64-pc-windows-msvc` for ARM64; that needs Visual Studio's *MSVC ARM64 build tools* component):
+
+```bash
+cargo build --release -p calc-app --target x86_64-pc-windows-msvc
+```
+
+```bash
+cargo packager -p scicalc82 --release --target x86_64-pc-windows-msvc --formats nsis
+```
+
+On Linux (or in WSL), for the .deb and .rpm:
+
+```bash
+cargo build --release -p calc-app
+```
+
+```bash
+cargo packager -p scicalc82 --release --formats deb
+```
+
+```bash
+cargo generate-rpm -p crates/calc-app
+```
+
+The Windows installer is written next to the executable in `target/<target>/release/`, the .deb to `target/release/` and the .rpm to `target/generate-rpm/`. On macOS, `--formats app` builds `SciCalc 82.app`; the workflow then signs it ad hoc and wraps it in a .dmg.
+
+The package settings are in `crates/calc-app/Cargo.toml`. The icons in `crates/calc-app/icons/` are drawn by the same code as the window icon. Regenerate them after changing it:
+
+```bash
+cargo test -p calc-app write_package_icons -- --ignored
+```
 
 ### Windows icon
 
@@ -112,6 +166,8 @@ The modes work like the device:
 crates/calc-core   the engine, with no UI code: numbers, input editor, parser, evaluator,
                    menus, STAT and TABLE, driven by key presses
 crates/calc-app    the eframe/egui app: calculator body, keypad, LCD and natural-display renderer
+packaging/linux    the .desktop file for the Linux packages
+.github/workflows  the Installers workflow
 PLAN.md            design decisions and milestones
 ```
 

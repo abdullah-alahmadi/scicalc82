@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=SciCalc 82
+GenericName=Scientific Calculator
+Comment=A scientific calculator with a textbook display and exact answers
+Exec=scicalc82
+Icon=scicalc82
+Terminal=false
+Categories=Utility;Calculator;
+Keywords=calculator;math;scientific;fraction;
+StartupWMClass=scicalc82
