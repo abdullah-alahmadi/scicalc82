@@ -120,4 +120,4 @@ Because the engine only takes key presses, whole keystroke sequences are easy to
 
 ## License
 
-[MIT](LICENSE). Its name, look and code are original.
+SciCalc 82 is released under the [MIT License](LICENSE).

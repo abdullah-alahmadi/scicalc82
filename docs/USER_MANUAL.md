@@ -1,6 +1,6 @@
 # SciCalc 82 User Manual
 
-SciCalc 82 is a scientific calculator for the desktop and the web, modeled on the classic school scientific calculators. It writes math the way a textbook does, keeps answers exact when it can, and has modes for complex numbers, statistics, tables of values, matrices and equations.
+SciCalc 82 is a scientific calculator for the desktop and the web, modeled on the classic school scientific calculators. It writes math the way a textbook does, keeps answers exact when it can, and has modes for complex numbers, statistics, tables of values, matrices, equations and vectors.
 
 ![The calculator](images/overview.png)
 
