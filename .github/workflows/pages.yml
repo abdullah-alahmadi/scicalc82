@@ -1,0 +1,45 @@
+# Publishes the web version to GitHub Pages. To turn it on, set the
+# repository's Settings → Pages → Source to "GitHub Actions".
+
+name: Web
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install trunk --locked
+      # The site is served from /<repository name>/, not the domain root.
+      - run: trunk build --release --public-url "/${{ github.event.repository.name }}/"
+        working-directory: crates/calc-app
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: crates/calc-app/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

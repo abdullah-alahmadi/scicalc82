@@ -6,6 +6,8 @@ members = ["crates/calc-core", "crates/calc-app"]
 edition = "2024"
 version = "0.1.0"
 license = "MIT"
+repository = "https://github.com/abdullah-alahmadi/scicalc82"
+homepage = "https://github.com/abdullah-alahmadi/scicalc82"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

@@ -1,196 +1,123 @@
+<div align="center">
+
+<img src="crates/calc-app/icons/128x128.png" width="88" alt="">
+
 # SciCalc 82
 
-A desktop scientific calculator written in Rust. It looks and behaves like a classic school scientific calculator: a textbook-style ("natural") display, exact answers such as `√2/2` and `3π/4`, and the same keys, menus and modes.
+**A scientific calculator with a textbook display and exact answers, built in Rust 🦀**
 
-The name, look and code are original.
+It looks, feels and calculates like a classic school scientific calculator,<br>
+and runs on Windows, macOS, Linux and in the browser.
 
-For how to use every key, mode and menu, see the **[User Manual](docs/USER_MANUAL.md)**.
+[![CI](https://github.com/abdullah-alahmadi/scicalc82/actions/workflows/ci.yml/badge.svg)](https://github.com/abdullah-alahmadi/scicalc82/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/abdullah-alahmadi/scicalc82?sort=semver&color=d97a2b)](https://github.com/abdullah-alahmadi/scicalc82/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-2a2e35)](LICENSE)
+[![Made with Rust](https://img.shields.io/badge/made_with-Rust-b7410e?logo=rust)](https://www.rust-lang.org)
 
-## Features
+[**Download**](#download) &nbsp;·&nbsp; [**Try it in your browser**](https://abdullah-alahmadi.github.io/scicalc82/) &nbsp;·&nbsp; [**User Manual**](docs/USER_MANUAL.md)
 
-- **Natural display:** stacked fractions, real radicals, raised exponents, and a cursor that moves through them. LineIO mode gives a one-line display instead.
-- **Dot-matrix LCD:** display text is drawn dot by dot from a built-in 5×7 typeface. Dots snap to screen pixels so small text stays sharp.
-- **Exact arithmetic:** fractions, sums of square roots (`1+√5`) and multiples of π stay exact. S⇔D switches to the decimal form.
-  - Special angles are exact too: `sin 30° = 1/2`, `cos(π/4) = √2/2`, and `sin⁻¹(1/2)` gives `π/6` in radians.
-  - Decimals carry 15 significant digits internally and show 10, with results limited to |x| < 10¹⁰⁰.
-- **Functions:**
-  - Trig and inverse trig, hyperbolic functions, logs (including log base n), powers and roots (including ˣ√).
-  - x!, nPr, nCr, Pol/Rec, Abs, Ran#, RanInt#, Rnd, °′″ input and output, and DRG▸ angle conversion.
-- **Memory and results:** Ans, A–F, X, Y and M; STO/RCL and M+/M−; history replay with ▲/▼.
-  - Errors jump the cursor to where the problem is, like the device.
-- **SETUP:** MthIO/LineIO, Deg/Rad/Gra, Fix/Sci/Norm, ab/c or d/c fractions, and STAT frequency on/off.
-- **Modes:**
-  - **COMP:** ordinary calculations.
-  - **CMPLX:** complex numbers in rectangular (`a+bi`) and polar (`r∠θ`) form, with exact results such as `2∠30 = √3+i`. Supports + − × ÷, integer powers, Abs, arg, Conjg and conversion between the two forms.
-  - **STAT:** 1-VAR statistics and A+BX linear regression, with a data editor and an optional FREQ column.
-  - **TABLE:** values of f(X) over a range.
-  - **EQN:** solves two or three simultaneous linear equations, and quadratic and cubic equations. Answers are exact where possible (`X²−2=0` gives `±√2`), and complex roots are included.
-  - **MATRIX:** matrices up to 3×3 (MatA, MatB, MatC and MatAns) with exact entries. Supports + − ×, multiplying or dividing by a number, x², x³ and integer powers, the inverse (x⁻¹), det, Trn (transpose) and Abs.
-  - **VECTOR:** 2D and 3D vectors (VctA, VctB, VctC and VctAns) with exact components. Supports + −, multiplying or dividing by a number, the dot product, the cross product, Abs (length, such as `√14`) and the angle between two vectors.
-- **Persistence:** settings, memory, mode, STAT data, the TABLE setup, matrices, vectors and EQN coefficients are saved between launches. On Windows the file is `%APPDATA%\scicalc82\data\app.ron`. If the file is damaged, the app starts fresh instead of failing.
+<br>
 
-## Build and run
+<img src="docs/images/hero.png" width="880" alt="Three SciCalc 82 calculators: an exact sum of a fraction and a square root, the inverse of a 3×3 matrix with fractional entries, and a complex root of a cubic equation">
 
-You need a recent stable Rust toolchain (edition 2024).
+</div>
+
+<br>
+
+## Exact, like on paper
+
+Answers stay as fractions, square roots and multiples of π for as long as they can. `sin 30°` is `1/2`, `cos(π/4)` is `√2/2`, and `1/3 + √(1/2)` is shown just as you would write it. Press **S⇔D** whenever you want the decimal.
+
+<p align="center">
+  <img src="docs/images/demo.gif" width="380" alt="Typing 1/3 + √(1/2) on the calculator, pressing = for the exact answer, then S⇔D for the decimal">
+</p>
+
+## Seven modes
+
+| Mode | What it does | For example |
+|---|---|---|
+| **COMP** | Everyday calculations: trig, logs, powers and roots, factorials, nPr and nCr, degrees-minutes-seconds | `sin⁻¹(1/2)` → `π/6` in radians |
+| **CMPLX** | Complex numbers in rectangular and polar form | `2∠30` → `√3+i` |
+| **STAT** | One-variable statistics and linear regression, with a data editor | mean, σx, and predicted values from the regression line |
+| **TABLE** | A table of values of f(X) over a range | `X²+1` for X = 1 to 5 |
+| **MATRIX** | Matrices up to 3×3 with exact inverse, determinant and transpose | `[[1,2],[3,4]]⁻¹` → `[[−2,1],[3/2,−1/2]]` |
+| **EQN** | Simultaneous linear equations, quadratics and cubics, with complex roots | `X³−1=0` → `1`, `−1/2 ± √3/2 i` |
+| **VECTOR** | 2D and 3D vectors: dot and cross products, length and angle | the length of (1, 2, 3) → `√14` |
+
+<table>
+  <tr>
+    <td align="center" width="33%"><img src="docs/images/cmplx_polar.png" alt="1+i in polar form: √2∠45"><br><sub>Polar form, exactly</sub></td>
+    <td align="center" width="33%"><img src="docs/images/matrix_inverse.png" alt="The inverse of a 2×2 matrix"><br><sub>A matrix inverse</sub></td>
+    <td align="center" width="33%"><img src="docs/images/vector_cross.png" alt="A cross product of two 3D vectors"><br><sub>A cross product</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/images/eqn_root.png" alt="A complex root of a cubic equation"><br><sub>Complex roots of a cubic</sub></td>
+    <td align="center"><img src="docs/images/stat_estimate.png" alt="A value predicted by linear regression"><br><sub>Linear regression</sub></td>
+    <td align="center"><img src="docs/images/table_view.png" alt="A table of values of X²+1"><br><sub>A table of values</sub></td>
+  </tr>
+</table>
+
+## The details
+
+- **A natural display.** Fractions stack, roots stretch over what they contain, and exponents are raised. The cursor moves through all of it, and LineIO gives a one-line display instead.
+- **A real dot-matrix LCD.** Display text is drawn dot by dot from the app's own 5×7 typeface, snapped to screen pixels so even small text stays sharp.
+- **The calculator's rules.** It follows the device's order of operations, including implicit multiplication. Errors put the cursor where the problem is, and ▲/▼ replay earlier calculations.
+- **Memory that lasts.** Ans, the variables A–F, X, Y and M, your settings and the data in every mode are kept between launches.
+- **Your keyboard works too.** Type digits and operators, use `s` for sin, `r` for √, `f` for a fraction and more. See the [shortcuts](docs/USER_MANUAL.md#11-pc-keyboard-shortcuts).
+
+Everything is explained, with screenshots, in the [**User Manual**](docs/USER_MANUAL.md).
+
+## Download
+
+Get the installer for your system from the [**latest release**](https://github.com/abdullah-alahmadi/scicalc82/releases/latest):
+
+| System | File | |
+|---|---|---|
+| **Windows** 10 and 11 | `…_x64-setup.exe` or `…_arm64-setup.exe` | Installs for your account; no administrator rights needed |
+| **macOS** 11 and later | `…_aarch64.dmg` (Apple silicon) or `…_x64.dmg` (Intel) | Drag the app to Applications |
+| **Debian, Ubuntu** | `….deb` | `sudo apt install ./scicalc82_*.deb` |
+| **Fedora, RHEL** | `….rpm` | `sudo dnf install ./scicalc82-*.rpm` |
+
+Or skip installing and [use it in your browser](https://abdullah-alahmadi.github.io/scicalc82/).
+
+> [!NOTE]
+> The installers aren't code-signed yet. On Windows, if SmartScreen appears, choose *More info → Run anyway*. On macOS, right-click the app and choose *Open* the first time.
+
+## Build from source
+
+With a recent stable [Rust](https://rustup.rs) toolchain:
+
+```bash
+git clone https://github.com/abdullah-alahmadi/scicalc82.git
+```
+
+```bash
+cd scicalc82
+```
 
 ```bash
 cargo run --release -p calc-app
 ```
 
-The optimized executable is written to `target/release/scicalc82.exe` (`scicalc82` on macOS and Linux).
+[docs/BUILDING.md](docs/BUILDING.md) covers the web version, the installers and the tests.
 
-### Web version
+## Built with Rust
 
-The same app runs in a browser as WebAssembly. You need the `wasm32-unknown-unknown` target and [trunk](https://trunkrs.dev):
+SciCalc 82 is written entirely in safe [Rust](https://www.rust-lang.org): about 11,000 lines, with `unsafe` code forbidden across the workspace. It's split into two crates.
 
-```bash
-rustup target add wasm32-unknown-unknown
-```
+- **`calc-core`** is the calculator itself: exact arithmetic, the input editor, the parser and every mode. The fractions, square roots and π multiples are implemented from scratch, so the engine's only dependencies are `serde` (for saving) and `thiserror`. It has no UI code, and everything happens through one call, `Calculator::press(key)`.
+- **`calc-app`** draws the body, the keys and the dot-matrix LCD with [egui](https://github.com/emilk/egui) and [eframe](https://github.com/emilk/egui/tree/main/crates/eframe). The same code builds a native app for Windows, macOS and Linux and, through [WebAssembly](https://webassembly.org) and [trunk](https://trunkrs.dev), the browser version.
 
-```bash
-cargo install trunk --locked
-```
+Because the engine only takes key presses, whole keystroke sequences are easy to test. Most of the more than 140 tests read like button presses, and [proptest](https://github.com/proptest-rs/proptest) checks the arithmetic against random inputs. Even the pictures on this page are rendered by tests, offscreen, from the real app.
 
-Then, from `crates/calc-app`:
-
-```bash
-trunk serve
-```
-
-That serves the calculator at http://localhost:8765 and rebuilds when files change. `trunk build` writes a static site to `crates/calc-app/dist/`, which you can upload to any static host (GitHub Pages, Netlify, and so on). The `.wasm` file is about 5 MB, roughly 2 MB once the server compresses it. In the browser, settings and memory are saved in the page's local storage.
-
-### Installers
-
-| Platform | File | Installs to |
-|---|---|---|
-| Windows x64 / ARM64 | `scicalc82_<version>_x64-setup.exe`, `…_arm64-setup.exe` | `%LOCALAPPDATA%\SciCalc 82`, with Start menu and desktop shortcuts. No administrator rights needed. |
-| macOS (Apple silicon / Intel) | `scicalc82_<version>_aarch64.dmg`, `…_x64.dmg` | Drag *SciCalc 82* to Applications |
-| Debian, Ubuntu | `scicalc82_<version>_amd64.deb` (or `arm64`) | `sudo apt install ./scicalc82_*.deb` |
-| Fedora, RHEL | `scicalc82-<version>-1.x86_64.rpm` (or `aarch64`) | `sudo dnf install ./scicalc82-*.rpm` |
-
-The installers are not code-signed:
-- **Windows:** SmartScreen may say it "protected your PC". Choose *More info*, then *Run anyway*.
-- **macOS:** the first time, right-click the app and choose *Open*, or allow it in *System Settings → Privacy & Security*.
-- **Uninstalling:** on Windows, use *Settings → Apps* (it offers to keep or delete the saved settings and memory). On Linux, use `sudo apt remove scicalc82` or `sudo dnf remove scicalc82`.
-
-**Building them with GitHub Actions.** The `Installers` workflow (`.github/workflows/release.yml`) builds all of them on GitHub's Windows, macOS and Linux machines. Run it from the Actions tab to download the installers as build artifacts. Pushing a tag such as `v0.1.0` also attaches them to a draft GitHub release. The Linux packages are built on Ubuntu 22.04, so they also run on Debian 12, Fedora 36 and later, and RHEL 10.
-
-**Building them yourself.** Each installer is built on its own operating system with [cargo-packager](https://github.com/crabnebula-dev/cargo-packager), plus [cargo-generate-rpm](https://github.com/cat-in-136/cargo-generate-rpm) for the .rpm:
-
-```bash
-cargo install cargo-packager cargo-generate-rpm --locked
-```
-
-On Windows, for x64 (use `aarch64-pc-windows-msvc` for ARM64; that needs Visual Studio's *MSVC ARM64 build tools* component):
-
-```bash
-cargo build --release -p calc-app --target x86_64-pc-windows-msvc
-```
-
-```bash
-cargo packager -p scicalc82 --release --target x86_64-pc-windows-msvc --formats nsis
-```
-
-On Linux (or in WSL), for the .deb and .rpm:
-
-```bash
-cargo build --release -p calc-app
-```
-
-```bash
-cargo packager -p scicalc82 --release --formats deb
-```
-
-```bash
-cargo generate-rpm -p crates/calc-app
-```
-
-The Windows installer is written next to the executable in `target/<target>/release/`, the .deb to `target/release/` and the .rpm to `target/generate-rpm/`. On macOS, `--formats app` builds `SciCalc 82.app`; the workflow then signs it ad hoc and wraps it in a .dmg.
-
-The package settings are in `crates/calc-app/Cargo.toml`. The icons in `crates/calc-app/icons/` are drawn by the same code as the window icon. Regenerate them after changing it:
-
-```bash
-cargo test -p calc-app write_package_icons -- --ignored
-```
-
-### Windows icon
-
-On Windows, the build also embeds the app icon in the exe, so Explorer and shortcuts show it. It's generated from the same drawing code as the window icon (`crates/calc-app/src/icon_pixels.rs`). Embedding needs the resource compiler from the Windows SDK. If that's missing, the build still succeeds and prints a warning, and the exe simply has no icon.
-
-## Using it
-
-Click the keys, or use the PC keyboard. Hovering over the model name in the app shows this list too.
-
-| Keys | Action |
+| | |
 |---|---|
-| `0`–`9` `.` `+` `-` `*` `/` `(` `)` `^` | Same as the calculator keys |
-| Enter, `=` | = |
-| Backspace / Esc, Delete | DEL / AC |
-| Arrow keys | Move the cursor, switch fraction slots, replay history |
-| `s` `c` `t` / `S` `C` `T` | sin cos tan / their inverses |
-| `h` `l` `n` `r` `q` | hyp, log, ln, √, x² |
-| `f` `!` `%` `,` | Fraction, x!, %, comma |
-| `p` `e` `E` | π, e, ×10ˣ |
-| `a` `d` `m` | Ans, S⇔D, M+ |
-| `i` `<` | i and ∠ (CMPLX mode) |
-| Ctrl+C | Copy the result |
+| Language | Rust 2024 edition, stable toolchain |
+| UI | egui and eframe, drawn with OpenGL (glow) |
+| Web | WebAssembly, built with trunk |
+| Installers | [cargo-packager](https://github.com/crabnebula-dev/cargo-packager) and [cargo-generate-rpm](https://github.com/cat-in-136/cargo-generate-rpm) |
+| Tests | Keystroke tests, property tests with proptest, and offscreen renders with egui_kittest |
 
-The modes work like the device:
-- **MODE:** 1 for COMP, 2 for CMPLX, 3 for STAT, 4 for TABLE, 5 for MATRIX, 6 for EQN, 7 for VECTOR.
-- **SHIFT MODE:** opens SETUP. ▼ shows its second page, which includes the CMPLX result format (a+bi or r∠θ).
-- **CMPLX mode:**
-  - The ENG key types `i`, and SHIFT (−) types `∠`. Angles use the current angle unit.
-  - SHIFT 2 opens the CMPLX menu: arg, Conjg, ▸r∠θ and ▸a+bi. Put ▸r∠θ or ▸a+bi at the end of a calculation to show its result in that form.
-  - √ of a negative number gives an imaginary result. Real-only functions such as sin and log reject complex numbers, as on the device.
-- **STAT mode:** SHIFT 1 opens the STAT menu (Type, Data, Sum, Var, Reg, MinMax).
-- **EQN mode:**
-  - Choose the equation type: 1 `anX+bnY=cn`, 2 `anX+bnY+cnZ=dn`, 3 `aX²+bX+c=0`, 4 `aX³+bX²+cX+d=0`.
-  - Type each coefficient followed by =; any expression works, such as `1/2` or `√3`. Press = with nothing typed to solve.
-  - Solutions appear one at a time. ▲/▼ move between them, S⇔D toggles exact and decimal, and = after the last (or AC) returns to the coefficients.
-  - Linear systems can show `No Solution` or `Infinite Solution`. A leading coefficient of 0 in a quadratic or cubic is a Math ERROR.
-- **MATRIX mode:**
-  - On entering the mode, choose a matrix and its size (1×1 to 3×3; ▼ shows the 1×n sizes), then type each cell followed by =. AC returns to calculations.
-  - SHIFT 4 opens the MATRIX menu: Dim (resize a matrix), Data (edit its cells), MatA, MatB, MatC, MatAns, det and Trn.
-  - Matrix results are drawn in brackets and become MatAns; results that are numbers, such as det, become Ans.
-  - Mismatched sizes give a Dimension ERROR, and inverting a singular matrix gives a Math ERROR.
-- **VECTOR mode:**
-  - On entering the mode, choose a vector and its dimension (3D or 2D), then type each component followed by =. AC returns to calculations.
-  - SHIFT 5 opens the VECTOR menu: Dim, Data, VctA, VctB, VctC, VctAns, Dot (`·`) and Angle.
-  - × between two vectors is the cross product; two 2D vectors give (0, 0, z). Vector results become VctAns.
-  - Mixing 2D and 3D vectors gives a Dimension ERROR.
-- **CLR (SHIFT 9):** resets setup, memory, or both.
+## License
 
-## Project layout
-
-```
-crates/calc-core   the engine, with no UI code: numbers, input editor, parser, evaluator,
-                   menus, STAT and TABLE, driven by key presses
-crates/calc-app    the eframe/egui app: calculator body, keypad, LCD and natural-display renderer
-packaging/linux    the .desktop file for the Linux packages
-.github/workflows  the Installers workflow
-PLAN.md            design decisions and milestones
-```
-
-`calc-core` exposes one entry point: `Calculator::press(Key)` changes the state, and the display reads it back. Because the engine doesn't depend on the UI, most behavior is tested through keystroke sequences.
-
-## Tests
-
-```bash
-cargo test
-```
-
-This runs unit, property and keystroke tests for the engine, plus layout tests for the display.
-
-To render the main screens to PNG files without opening a window:
-
-```bash
-cargo test -p calc-app render_screens -- --ignored
-```
-
-The images are written to `target/screens/`.
-
-The manual's screenshots in `docs/images/` are generated the same way. Regenerate them after changing the UI:
-
-```bash
-cargo test -p calc-app render_manual_images -- --ignored
-```
+[MIT](LICENSE). Its name, look and code are original.
